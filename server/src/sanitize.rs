@@ -22,9 +22,9 @@ static RE_MULTI_SPACE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\s{2,}").unwrap()
 });
 
-static RE_SENTENCE_BREAK: Lazy<Regex> = Lazy::new(|| {
-    // Split after Japanese sentence enders (keep the delimiter)
-    Regex::new(r"(?<=[。！？!?])").unwrap()
+static RE_SENTENCE: Lazy<Regex> = Lazy::new(|| {
+    // Match text up to and including a sentence-ender (look-behind unsupported in regex crate)
+    Regex::new(r"[^。！？!?]*[。！？!?]").unwrap()
 });
 
 /// Clean raw manga OCR text through a normalisation + noise-removal pipeline.
@@ -57,13 +57,27 @@ pub fn clean_manga_text(raw: &str) -> String {
 }
 
 /// Split cleaned text into individual sentences on 。！？ boundaries.
-/// Used to feed shorter, context-accurate chunks to the tokenizer.
+/// Each sentence retains its terminal punctuation.
+/// Any trailing text without a sentence-ender is appended as a final fragment.
 pub fn split_sentences(text: &str) -> Vec<String> {
-    RE_SENTENCE_BREAK
-        .split(text)
-        .map(|s| s.trim().to_string())
+    let mut sentences: Vec<String> = RE_SENTENCE
+        .find_iter(text)
+        .map(|m| m.as_str().trim().to_string())
         .filter(|s| !s.is_empty())
-        .collect()
+        .collect();
+
+    // Append any trailing fragment that has no sentence-ender
+    let consumed = RE_SENTENCE
+        .find_iter(text)
+        .last()
+        .map(|m| m.end())
+        .unwrap_or(0);
+    let tail = text[consumed..].trim();
+    if !tail.is_empty() {
+        sentences.push(tail.to_string());
+    }
+
+    sentences
 }
 
 #[cfg(test)]

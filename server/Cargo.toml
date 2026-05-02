@@ -37,6 +37,7 @@ regex = "1"
 lindera = { version = "3", features = ["embed-ipadic"] }
 once_cell = "1"
 urlencoding = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Utilities
 base64 = "0.22"

@@ -7,7 +7,7 @@ use crate::{
     db,
     error::AppError,
     sanitize::{clean_manga_text, split_sentences},
-    services::analyze::TokenInfo,
+    services::{analyze::TokenInfo, dictionary::DictionaryService},
     state::AppState,
 };
 
@@ -89,9 +89,9 @@ pub async fn handler(
         .map_err(|e| AppError::OcrFailed(e.to_string()))?
     };
 
-    // ── 3. Jisho dictionary lookup (one request per unique dictionary_form) ──
+    // ── 3. Dictionary lookup (local JMdict or remote Jisho) ──────────────────
 
-    let definitions = lookup_definitions(&state.http_client, &tokens).await;
+    let definitions = lookup_definitions(&state, &tokens).await;
 
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
@@ -116,31 +116,34 @@ pub async fn handler(
     }))
 }
 
-// ── Jisho API helper ──────────────────────────────────────────────────────────
+// ── Dictionary dispatch ───────────────────────────────────────────────────────
 
-/// Look up each token's `dictionary_form` in Jisho, deduplicating so the same
-/// word is only fetched once. Returns a vec parallel to `tokens`.
+/// Look up each token's `dictionary_form`, deduplicating by key.
+/// Dispatches to local JMdict or remote Jisho based on `state.dict_mode`.
 async fn lookup_definitions(
-    client: &reqwest::Client,
+    state: &AppState,
     tokens: &[TokenInfo],
 ) -> Vec<Option<JishoEntry>> {
     use std::collections::HashMap;
 
-    // Build deduplicated lookup map: dictionary_form → Option<JishoEntry>
+    let use_local = state.dict_mode.is_local();
     let mut cache: HashMap<String, Option<JishoEntry>> = HashMap::new();
 
     for token in tokens {
-        // Skip particles, punctuation, and auxiliary verbs — not useful to look up
         if should_skip(&token.pos) {
             continue;
         }
         let key = token.dictionary_form.clone();
         if !cache.contains_key(&key) {
-            cache.insert(key.clone(), fetch_jisho(client, &key).await);
+            let entry = if use_local {
+                lookup_local(&state.dictionary, &key)
+            } else {
+                fetch_jisho(&state.http_client, &key).await
+            };
+            cache.insert(key, entry);
         }
     }
 
-    // Map back to parallel vec
     tokens
         .iter()
         .map(|t| {
@@ -151,6 +154,19 @@ async fn lookup_definitions(
             }
         })
         .collect()
+}
+
+/// Convert the first local JMdict entry to the shared `JishoEntry` shape.
+fn lookup_local(dict: &DictionaryService, word: &str) -> Option<JishoEntry> {
+    let entries = dict.lookup(word)?;
+    let first = entries.first()?;
+    Some(JishoEntry {
+        word: first.expression.clone(),
+        reading: first.reading.clone(),
+        meanings: first.meanings.clone(),
+        jlpt: first.jlpt.clone(),
+        is_common: first.is_common,
+    })
 }
 
 fn should_skip(pos: &str) -> bool {
