@@ -1,0 +1,15 @@
+{
+  "name": "selfhost-ocr-extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run typecheck && bun run build.ts",
+    "build:dev": "bun run build.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.13",
+    "@types/chrome": "^0.0.323",
+    "typescript": "^6"
+  }
+}

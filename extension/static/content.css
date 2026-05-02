@@ -1,0 +1,212 @@
+/* ── Selection overlay ─────────────────────────────────────────────────────── */
+
+#socr-overlay {
+  all: initial;
+  display: block;
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483647 !important;
+  cursor: crosshair !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+#socr-hint {
+  all: initial;
+  display: block;
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  background: rgba(0, 0, 0, 0.75) !important;
+  color: #fff !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 15px !important;
+  padding: 10px 18px !important;
+  border-radius: 8px !important;
+  pointer-events: none !important;
+  white-space: nowrap !important;
+  z-index: 2147483647 !important;
+}
+
+/* Dark backdrop shown before the user starts dragging */
+#socr-backdrop {
+  all: initial;
+  display: block;
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+  pointer-events: none !important;
+  z-index: 2147483646 !important;
+}
+
+/* Selection rectangle — box-shadow creates the "dim everything else" effect */
+#socr-selection {
+  all: initial;
+  display: none;
+  position: fixed !important;
+  background: transparent !important;
+  border: 2px solid rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45) !important;
+  pointer-events: none !important;
+  z-index: 2147483647 !important;
+  box-sizing: border-box !important;
+}
+
+/* ── Result panel ───────────────────────────────────────────────────────────── */
+
+.socr-result-panel {
+  all: initial;
+  display: block;
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  background: #1e1e2e !important;
+  border: 1px solid #45475a !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+  width: 360px !important;
+  max-height: 420px !important;
+  overflow: hidden !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 14px !important;
+  color: #cdd6f4 !important;
+  box-sizing: border-box !important;
+}
+
+.socr-panel-inner {
+  all: initial;
+  display: block;
+  padding: 14px 16px !important;
+  box-sizing: border-box !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+}
+
+/* Close button */
+.socr-close {
+  all: initial;
+  display: block;
+  position: absolute !important;
+  top: 8px !important;
+  right: 10px !important;
+  background: none !important;
+  border: none !important;
+  color: #585b70 !important;
+  font-size: 20px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  padding: 2px 4px !important;
+  border-radius: 4px !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  transition: color 0.15s !important;
+}
+.socr-close:hover {
+  color: #cdd6f4 !important;
+}
+
+/* Section labels */
+.socr-text-label {
+  all: initial;
+  display: block;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: #6c7086 !important;
+  margin-bottom: 4px !important;
+  margin-top: 12px !important;
+}
+.socr-text-label:first-child {
+  margin-top: 0 !important;
+}
+
+/* OCR/translation text */
+.socr-text {
+  all: initial;
+  display: block;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 14px !important;
+  color: #cdd6f4 !important;
+  line-height: 1.5 !important;
+  word-break: break-word !important;
+  background: #313244 !important;
+  border-radius: 6px !important;
+  padding: 8px 10px !important;
+  margin-bottom: 6px !important;
+  white-space: pre-wrap !important;
+  max-height: 100px !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
+}
+
+/* Copy buttons */
+.socr-copy {
+  all: initial;
+  display: inline-block;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #89b4fa !important;
+  background: #313244 !important;
+  border: 1px solid #45475a !important;
+  border-radius: 5px !important;
+  padding: 4px 10px !important;
+  cursor: pointer !important;
+  margin-bottom: 2px !important;
+  transition: background 0.15s !important;
+  box-sizing: border-box !important;
+}
+.socr-copy:hover {
+  background: #45475a !important;
+}
+
+/* Elapsed time */
+.socr-elapsed {
+  all: initial;
+  display: block;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 11px !important;
+  color: #585b70 !important;
+  margin-top: 8px !important;
+  text-align: right !important;
+}
+
+/* Loading state */
+.socr-loading {
+  all: initial;
+  display: flex;
+  align-items: center !important;
+  gap: 10px !important;
+  color: #cdd6f4 !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 14px !important;
+  padding: 8px 0 !important;
+}
+
+.socr-spinner {
+  all: initial;
+  display: inline-block;
+  width: 18px !important;
+  height: 18px !important;
+  border: 2px solid #45475a !important;
+  border-top-color: #89b4fa !important;
+  border-radius: 50% !important;
+  animation: socr-spin 0.7s linear infinite !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+}
+
+@keyframes socr-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error state */
+.socr-error {
+  all: initial;
+  display: block;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 13px !important;
+  color: #f38ba8 !important;
+  padding: 8px 0 !important;
+  word-break: break-word !important;
+}
