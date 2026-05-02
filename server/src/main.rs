@@ -18,7 +18,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 use config::Config;
 use services::{
     analyze::AnalyzeService,
-    dictionary::{DictionaryMode, DictionaryService},
+    dictionary::DictionaryService,
     ocr::OcrService,
     translate::TranslateService,
 };
@@ -36,8 +36,12 @@ async fn main() -> Result<()> {
     let ocr       = OcrService::new(&config.ocr_models_dir)?;
     let translate = TranslateService::new(&config.translate_models_dir)?;
     let analyze   = Arc::new(AnalyzeService::new()?);
-    let dictionary = Arc::new(DictionaryService::load(&config.dict_dir).await?);
-    let dict_mode  = DictionaryMode::new(config.dictionary_mode == "local");
+    let dictionary = Arc::new(
+        DictionaryService::load(&config.dict_dir).await.unwrap_or_else(|e| {
+            tracing::warn!("Jitendex unavailable, falling back to Jisho: {e}");
+            DictionaryService::empty()
+        })
+    );
     let db = db::connect(&config).await?;
 
     let http_client = reqwest::Client::new();
@@ -46,7 +50,6 @@ async fn main() -> Result<()> {
         translate,
         analyze,
         dictionary,
-        dict_mode,
         db,
         config: config.clone(),
         http_client,
@@ -58,12 +61,10 @@ async fn main() -> Result<()> {
         .allow_headers(Any);
 
     let app = Router::new()
-        .route("/health",          get(routes::health::handler))
-        .route("/ocr",             post(routes::ocr::handler))
-        .route("/translate",       post(routes::translate::handler))
-        .route("/analyze",         post(routes::analyze::handler))
-        .route("/dictionary/mode", get(routes::dictionary::get_mode)
-                                   .post(routes::dictionary::set_mode))
+        .route("/health",    get(routes::health::handler))
+        .route("/ocr",       post(routes::ocr::handler))
+        .route("/translate", post(routes::translate::handler))
+        .route("/analyze",   post(routes::analyze::handler))
         .layer(cors)
         .with_state(state);
 

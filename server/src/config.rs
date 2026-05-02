@@ -8,8 +8,6 @@ pub struct Config {
     pub dict_dir: PathBuf,
     pub database_url: String,
     pub deepl_api_key: Option<String>,
-    /// Initial dictionary mode: "local" or "jisho" (default: "jisho")
-    pub dictionary_mode: String,
 }
 
 impl Config {
@@ -38,9 +36,6 @@ impl Config {
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| "ocr.db".to_string()),
 
             deepl_api_key: std::env::var("DEEPL_API_KEY").ok().filter(|s| !s.is_empty()),
-
-            dictionary_mode: std::env::var("DICTIONARY_MODE")
-                .unwrap_or_else(|_| "jisho".to_string()),
         })
     }
 }

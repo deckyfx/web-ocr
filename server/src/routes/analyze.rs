@@ -11,12 +11,24 @@ use crate::{
     state::AppState,
 };
 
+/// Which dictionary backend to use for a single request.
+#[derive(Debug, serde::Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum DictMode {
+    #[default]
+    Local,
+    Jisho,
+}
+
 #[derive(Deserialize)]
 pub struct AnalyzeRequest {
     pub text: String,
     /// Apply manga noise sanitization before tokenizing (default: true).
     #[serde(default = "default_true")]
     pub sanitize: bool,
+    /// Dictionary backend: "local" (Jitendex, default if loaded) or "jisho" (remote API).
+    #[serde(default)]
+    pub mode: DictMode,
 }
 
 fn default_true() -> bool {
@@ -89,9 +101,12 @@ pub async fn handler(
         .map_err(|e| AppError::OcrFailed(e.to_string()))?
     };
 
-    // ── 3. Dictionary lookup (local JMdict or remote Jisho) ──────────────────
+    // ── 3. Dictionary lookup ─────────────────────────────────────────────────
+    // Use local Jitendex when: mode is Local AND the dictionary is available.
+    // Fall back to Jisho when Local is requested but unavailable.
 
-    let definitions = lookup_definitions(&state, &tokens).await;
+    let use_local = body.mode == DictMode::Local && state.dictionary.is_available();
+    let definitions = lookup_definitions(&state, &tokens, use_local).await;
 
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
@@ -118,15 +133,13 @@ pub async fn handler(
 
 // ── Dictionary dispatch ───────────────────────────────────────────────────────
 
-/// Look up each token's `dictionary_form`, deduplicating by key.
-/// Dispatches to local JMdict or remote Jisho based on `state.dict_mode`.
 async fn lookup_definitions(
     state: &AppState,
     tokens: &[TokenInfo],
+    use_local: bool,
 ) -> Vec<Option<JishoEntry>> {
     use std::collections::HashMap;
 
-    let use_local = state.dict_mode.is_local();
     let mut cache: HashMap<String, Option<JishoEntry>> = HashMap::new();
 
     for token in tokens {

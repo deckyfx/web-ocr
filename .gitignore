@@ -17,6 +17,7 @@ dist/
 # ── Project-specific ──────────────────────────────────────────────────────────
 server/models/
 server/ocr.db
+server/ocr.db-wal
 extension/selfhost-ocr.tar.gz
 
 # ── OS ────────────────────────────────────────────────────────────────────────

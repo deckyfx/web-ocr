@@ -2,8 +2,6 @@ use std::{
     collections::HashMap,
     io::{Cursor, Read},
     path::Path,
-    sync::atomic::{AtomicBool, Ordering},
-    sync::Arc,
 };
 
 use anyhow::Context;
@@ -23,31 +21,6 @@ pub struct LocalEntry {
     pub jlpt: Option<String>,
 }
 
-// ── DictionaryMode ────────────────────────────────────────────────────────────
-
-/// Shared, runtime-switchable dictionary mode.
-/// `true` = local (Jitendex), `false` = remote (Jisho).
-#[derive(Clone)]
-pub struct DictionaryMode(pub Arc<AtomicBool>);
-
-impl DictionaryMode {
-    pub fn new(local: bool) -> Self {
-        Self(Arc::new(AtomicBool::new(local)))
-    }
-
-    pub fn is_local(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
-    }
-
-    pub fn set(&self, local: bool) {
-        self.0.store(local, Ordering::Relaxed);
-    }
-
-    pub fn name(&self) -> &'static str {
-        if self.is_local() { "local" } else { "jisho" }
-    }
-}
-
 // ── DictionaryService ─────────────────────────────────────────────────────────
 
 pub struct DictionaryService {
@@ -56,6 +29,16 @@ pub struct DictionaryService {
 }
 
 impl DictionaryService {
+    /// Create an empty (unavailable) service when the zip is not present.
+    pub fn empty() -> Self {
+        Self { terms: HashMap::new() }
+    }
+
+    /// Returns `true` if Jitendex is loaded and has entries.
+    pub fn is_available(&self) -> bool {
+        !self.terms.is_empty()
+    }
+
     /// Extract `jitendex-yomitan.zip` from `dict_dir` (once) and load into memory.
     ///
     /// The zip is extracted to `{dict_dir}/extracted/`. A `.done` marker prevents
