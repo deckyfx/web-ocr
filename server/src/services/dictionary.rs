@@ -90,9 +90,13 @@ impl DictionaryService {
 
         info!("Loading Jitendex into memory…");
         let dir = extract_dir.clone();
+        let t0 = std::time::Instant::now();
         let svc = tokio::task::spawn_blocking(move || parse_terms(&dir)).await??;
-
-        info!("Jitendex loaded: {} entries", svc.terms.len());
+        info!(
+            "✓ Jitendex ready — {} entries loaded in {:.1}s",
+            svc.terms.len(),
+            t0.elapsed().as_secs_f32()
+        );
         Ok(svc)
     }
 
