@@ -189,12 +189,18 @@ fn str_at(arr: &[Value], idx: usize) -> String {
         .to_string()
 }
 
-/// Recursively flatten Yomitan structured-content to plain text.
+/// Recursively flatten a node to plain text, joining siblings with a space.
+/// Used only for individual gloss `<li>` content (which may contain ruby, etc.).
 fn extract_text(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
-        Value::Array(arr) => arr.iter().map(extract_text).collect::<Vec<_>>().join(""),
+        // Join siblings with a space so ruby base+furigana don't run together.
+        Value::Array(arr) => arr.iter().map(extract_text).collect::<Vec<_>>().join(" "),
         Value::Object(obj) => {
+            // Skip <rt> (ruby furigana) — we only want the base characters.
+            if obj.get("tag").and_then(|v| v.as_str()) == Some("rt") {
+                return String::new();
+            }
             if let Some(c) = obj.get("content") {
                 extract_text(c)
             } else if let Some(t) = obj.get("text") {
@@ -207,12 +213,116 @@ fn extract_text(v: &Value) -> String {
     }
 }
 
+/// data.content values whose subtrees should be skipped entirely.
+fn is_skipped_section(data_content: &str) -> bool {
+    matches!(
+        data_content,
+        // metadata / labels
+        "part-of-speech-info" | "field-info" | "misc-info" |
+        // examples
+        "extra-info" | "example-sentence" | "example-sentences" |
+        "example-sentence-a" | "example-sentence-b" | "example-keyword" |
+        // cross-references
+        "xref" | "xref-content" | "xref-glossary" |
+        // notes
+        "sense-note" | "sense-note-content" | "sense-note-label" | "reference-label" |
+        // word forms and attribution
+        "forms" | "forms-label" | "attribution"
+    )
+}
+
+/// Collect individual gloss strings from Yomitan structured-content into `out`.
+///
+/// Recognises `ul[data.content="glossary"]` and extracts each `<li>` child as
+/// a separate string. Skips example sentences, cross-references, and metadata.
+fn collect_glosses(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::String(s) => {
+            let s = s.trim().to_string();
+            if !s.is_empty() {
+                out.push(s);
+            }
+        }
+        Value::Array(arr) => {
+            for item in arr {
+                collect_glosses(item, out);
+            }
+        }
+        Value::Object(obj) => {
+            let data_content = obj
+                .get("data")
+                .and_then(|d| d.as_object())
+                .and_then(|d| d.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if is_skipped_section(data_content) {
+                return;
+            }
+
+            // Glossary list — extract each <li> as one meaning string.
+            if data_content == "glossary" {
+                if let Some(content) = obj.get("content") {
+                    extract_li_items(content, out);
+                }
+                return;
+            }
+
+            // Recurse into content or text.
+            if let Some(c) = obj.get("content") {
+                collect_glosses(c, out);
+            } else if let Some(t) = obj.get("text") {
+                let s = extract_text(t).trim().to_string();
+                if !s.is_empty() {
+                    out.push(s);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Extract the text of every `<li>` in a glossary content node.
+fn extract_li_items(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Array(arr) => {
+            for item in arr {
+                extract_li_items(item, out);
+            }
+        }
+        Value::Object(obj) => {
+            if obj.get("tag").and_then(|v| v.as_str()) == Some("li") {
+                if let Some(c) = obj.get("content") {
+                    let text = extract_text(c);
+                    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                    if !text.is_empty() {
+                        out.push(text);
+                    }
+                }
+            } else if let Some(c) = obj.get("content") {
+                extract_li_items(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn extract_meanings(val: Option<&Value>) -> Vec<String> {
     let Some(arr) = val.and_then(|v| v.as_array()) else { return vec![] };
 
-    arr.iter()
-        .map(extract_text)
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+    let mut meanings = Vec::new();
+    for def in arr {
+        match def {
+            // Plain-string definition (rare but valid in Yomitan format).
+            Value::String(s) => {
+                let s = s.trim().to_string();
+                if !s.is_empty() {
+                    meanings.push(s);
+                }
+            }
+            // Structured-content — extract individual glosses.
+            _ => collect_glosses(def, &mut meanings),
+        }
+    }
+    meanings
 }

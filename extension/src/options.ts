@@ -1,13 +1,15 @@
 type TranslationEngine = "none" | "local" | "deepl";
+type DictMode = "local" | "jisho";
 
 // ── Elements ──────────────────────────────────────────────────────────────────
 
-const serverUrlInput = document.getElementById("serverUrl") as HTMLInputElement;
-const engineSelect   = document.getElementById("translationEngine") as HTMLSelectElement;
-const testBtn        = document.getElementById("testBtn") as HTMLButtonElement;
-const saveBtn        = document.getElementById("saveBtn") as HTMLButtonElement;
-const statusEl       = document.getElementById("status") as HTMLDivElement;
-const noticeEl       = document.getElementById("firstInstallNotice") as HTMLDivElement;
+const serverUrlInput  = document.getElementById("serverUrl") as HTMLInputElement;
+const engineSelect    = document.getElementById("translationEngine") as HTMLSelectElement;
+const dictModeSelect  = document.getElementById("dictMode") as HTMLSelectElement;
+const testBtn         = document.getElementById("testBtn") as HTMLButtonElement;
+const saveBtn         = document.getElementById("saveBtn") as HTMLButtonElement;
+const statusEl        = document.getElementById("status") as HTMLDivElement;
+const noticeEl        = document.getElementById("firstInstallNotice") as HTMLDivElement;
 
 const engineHints: Record<TranslationEngine, HTMLElement> = {
   none:  document.getElementById("engineHint-none") as HTMLElement,
@@ -27,14 +29,32 @@ engineSelect.addEventListener("change", () => {
   applyEngine(engineSelect.value as TranslationEngine);
 });
 
+// ── Dict mode selector ────────────────────────────────────────────────────────
+
+const dictHints: Record<DictMode, HTMLElement> = {
+  jisho: document.getElementById("dictHint-jisho") as HTMLElement,
+  local: document.getElementById("dictHint-local") as HTMLElement,
+};
+
+function applyDictMode(mode: DictMode): void {
+  for (const [key, el] of Object.entries(dictHints)) {
+    el.style.display = key === mode ? "block" : "none";
+  }
+}
+
+dictModeSelect.addEventListener("change", () => {
+  applyDictMode(dictModeSelect.value as DictMode);
+});
+
 // ── Load saved settings ───────────────────────────────────────────────────────
 
 chrome.storage.sync
-  .get(["serverUrl", "translationEngine", "firstInstall"])
+  .get(["serverUrl", "translationEngine", "dictMode", "firstInstall"])
   .then((data) => {
     const s = data as {
       serverUrl?: string;
       translationEngine?: TranslationEngine;
+      dictMode?: DictMode;
       firstInstall?: boolean;
     };
 
@@ -43,6 +63,10 @@ chrome.storage.sync
     const engine: TranslationEngine = s.translationEngine ?? "none";
     engineSelect.value = engine;
     applyEngine(engine);
+
+    const dictMode: DictMode = s.dictMode ?? "jisho";
+    dictModeSelect.value = dictMode;
+    applyDictMode(dictMode);
 
     if (!s.serverUrl || s.firstInstall) {
       noticeEl.style.display = "block";
@@ -97,6 +121,7 @@ async function saveSettings(): Promise<void> {
   await chrome.storage.sync.set({
     serverUrl: url,
     translationEngine: engineSelect.value as TranslationEngine,
+    dictMode: dictModeSelect.value as DictMode,
   });
 
   showStatus("✅ Settings saved!", "success");

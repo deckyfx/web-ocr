@@ -6,14 +6,35 @@ interface SelectionRect {
   x: number; y: number; w: number; h: number; dpr: number;
 }
 
+interface TokenInfo {
+  surface: string;
+  dictionary_form: string;
+  reading: string;
+  pos: string;
+  pos_detail: string;
+}
+
+interface JishoEntry {
+  word: string;
+  reading: string;
+  romaji: string;
+  meanings: string[];
+  jlpt: string | null;
+  is_common: boolean;
+}
+
 interface SelectionCompleteMsg { type: "selection-complete"; rect: SelectionRect }
 interface CancelSelectionMsg   { type: "cancel-selection" }
-interface StartSelectionMsg    { type: "start-selection" }
-interface OcrResultMsg         { type: "ocr-result"; text: string; translation: string | null; elapsed_ms: number }
-interface OcrErrorMsg          { type: "ocr-error"; message: string }
+interface ExplainRequestMsg    { type: "explain-request"; text: string }
 
-type ToContentMsg   = StartSelectionMsg | OcrResultMsg | OcrErrorMsg;
-type FromContentMsg = SelectionCompleteMsg | CancelSelectionMsg;
+interface StartSelectionMsg { type: "start-selection" }
+interface OcrResultMsg      { type: "ocr-result"; text: string; translation: string | null; elapsed_ms: number }
+interface OcrErrorMsg       { type: "ocr-error"; message: string }
+interface ExplainResultMsg  { type: "explain-result"; tokens: TokenInfo[]; definitions: (JishoEntry | null)[]; mode: "local" | "jisho" }
+interface ExplainErrorMsg   { type: "explain-error"; message: string }
+
+type ToContentMsg   = StartSelectionMsg | OcrResultMsg | OcrErrorMsg | ExplainResultMsg | ExplainErrorMsg;
+type FromContentMsg = SelectionCompleteMsg | CancelSelectionMsg | ExplainRequestMsg;
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -58,9 +79,11 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
 // ── Message handler ───────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg: FromContentMsg, sender) => {
-  if (msg.type === "selection-complete") {
-    const tabId = sender.tab?.id;
-    if (tabId !== undefined) void handleSelection(msg.rect, tabId);
+  const tabId = sender.tab?.id;
+  if (msg.type === "selection-complete" && tabId !== undefined) {
+    void handleSelection(msg.rect, tabId);
+  } else if (msg.type === "explain-request" && tabId !== undefined) {
+    void handleExplain(msg.text, tabId);
   }
   return false;
 });
@@ -107,6 +130,45 @@ async function handleSelection(rect: SelectionRect, tabId: number): Promise<void
     });
   } catch (e) {
     sendToTab(tabId, { type: "ocr-error", message: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+// ── Explain flow ──────────────────────────────────────────────────────────────
+
+async function handleExplain(text: string, tabId: number): Promise<void> {
+  const settings = await chrome.storage.sync.get(["serverUrl", "dictMode"]) as {
+    serverUrl?: string;
+    dictMode?: "local" | "jisho";
+  };
+  const { serverUrl, dictMode = "jisho" } = settings;
+  if (!serverUrl) return;
+
+  try {
+    const res = await fetch(`${serverUrl.replace(/\/$/, "")}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, sanitize: true, mode: dictMode }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => String(res.status));
+      sendToTab(tabId, { type: "explain-error", message: `Server ${res.status}: ${errText.slice(0, 200)}` });
+      return;
+    }
+
+    const data = await res.json() as {
+      tokens: TokenInfo[];
+      definitions: (JishoEntry | null)[];
+    };
+
+    sendToTab(tabId, {
+      type: "explain-result",
+      tokens: data.tokens,
+      definitions: data.definitions,
+      mode: dictMode,
+    });
+  } catch (e) {
+    sendToTab(tabId, { type: "explain-error", message: e instanceof Error ? e.message : String(e) });
   }
 }
 

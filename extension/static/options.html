@@ -240,6 +240,26 @@
 
     </div>
 
+    <div class="card">
+      <h2>Dictionary (Explain feature)</h2>
+
+      <div class="field">
+        <label for="dictMode">Lookup backend</label>
+        <select id="dictMode">
+          <option value="jisho">Jisho API — clean meanings, JLPT info (requires internet)</option>
+          <option value="local">Local / Jitendex — fast, offline (server dictionary)</option>
+        </select>
+        <p class="field-hint" id="dictHint-jisho">
+          Fetches meanings from jisho.org. Provides clean definitions and reliable JLPT levels.
+          Each Explain request makes one API call per unique word.
+        </p>
+        <p class="field-hint" id="dictHint-local" style="display:none">
+          Uses the Jitendex dictionary loaded on your server. No internet required.
+          JLPT and "common word" info are not available in this mode.
+        </p>
+      </div>
+    </div>
+
     <div class="actions">
       <button id="testBtn">Test Connection</button>
       <button id="saveBtn">Save Settings</button>

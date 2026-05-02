@@ -66,7 +66,7 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
   width: 360px !important;
   max-height: 420px !important;
-  overflow: hidden !important;
+  overflow: auto !important;
   font-family: system-ui, -apple-system, sans-serif !important;
   font-size: 14px !important;
   color: #cdd6f4 !important;
@@ -100,6 +100,24 @@
   transition: color 0.15s !important;
 }
 .socr-close:hover {
+  color: #cdd6f4 !important;
+}
+
+/* Back button */
+.socr-back {
+  all: initial;
+  display: inline-block;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: #6c7086 !important;
+  background: none !important;
+  border: none !important;
+  cursor: pointer !important;
+  padding: 0 6px 0 0 !important;
+  vertical-align: baseline !important;
+}
+.socr-back:hover {
   color: #cdd6f4 !important;
 }
 
@@ -209,4 +227,187 @@
   color: #f38ba8 !important;
   padding: 8px 0 !important;
   word-break: break-word !important;
+}
+
+/* ── Actions row (Copy + Explain) ───────────────────────────────────────────── */
+
+.socr-actions {
+  all: initial;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin-bottom: 2px !important;
+}
+
+/* Explain button */
+.socr-explain {
+  all: initial;
+  display: inline-block;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #a6e3a1 !important;
+  background: #313244 !important;
+  border: 1px solid #45475a !important;
+  border-radius: 5px !important;
+  padding: 4px 10px !important;
+  cursor: pointer !important;
+  transition: background 0.15s !important;
+  box-sizing: border-box !important;
+}
+.socr-explain:hover {
+  background: #45475a !important;
+}
+.socr-explain:disabled {
+  opacity: 0.6 !important;
+  cursor: default !important;
+}
+
+/* ── Token card list ────────────────────────────────────────────────────────── */
+
+.socr-token-list {
+  all: initial;
+  display: block;
+  margin-top: 4px !important;
+}
+
+.socr-token-card {
+  all: initial;
+  display: block;
+  background: #313244 !important;
+  border-radius: 6px !important;
+  padding: 8px 10px !important;
+  margin-bottom: 5px !important;
+  box-sizing: border-box !important;
+}
+
+.socr-token-header {
+  all: initial;
+  display: flex !important;
+  align-items: baseline !important;
+  flex-wrap: wrap !important;
+  gap: 5px !important;
+  margin-bottom: 5px !important;
+}
+
+.socr-token-word {
+  all: initial;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  color: #89b4fa !important;
+}
+
+.socr-token-reading {
+  all: initial;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 12px !important;
+  color: #a6adc8 !important;
+}
+
+.socr-token-jlpt {
+  all: initial;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #1e1e2e !important;
+  background: #fab387 !important;
+  border-radius: 3px !important;
+  padding: 1px 5px !important;
+  letter-spacing: 0.03em !important;
+  line-height: 1.6 !important;
+}
+
+.socr-token-common {
+  all: initial;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: #1e1e2e !important;
+  background: #a6e3a1 !important;
+  border-radius: 3px !important;
+  padding: 1px 5px !important;
+  line-height: 1.6 !important;
+}
+
+.socr-token-meanings {
+  all: initial;
+  display: block;
+}
+
+.socr-token-meaning {
+  all: initial;
+  display: block;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 12px !important;
+  color: #cdd6f4 !important;
+  line-height: 1.45 !important;
+  word-break: break-word !important;
+}
+.socr-token-meaning + .socr-token-meaning {
+  margin-top: 2px !important;
+  color: #a6adc8 !important;
+}
+
+.socr-muted {
+  color: #585b70 !important;
+}
+
+/* ── Pager ──────────────────────────────────────────────────────────────────── */
+
+.socr-pager {
+  all: initial;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  margin-top: 6px !important;
+}
+
+.socr-pager-btn {
+  all: initial;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 14px !important;
+  color: #89b4fa !important;
+  background: #313244 !important;
+  border: 1px solid #45475a !important;
+  border-radius: 5px !important;
+  padding: 3px 12px !important;
+  cursor: pointer !important;
+  transition: background 0.15s !important;
+  box-sizing: border-box !important;
+}
+.socr-pager-btn:hover:not(:disabled) {
+  background: #45475a !important;
+}
+.socr-pager-btn:disabled {
+  opacity: 0.3 !important;
+  cursor: default !important;
+}
+
+.socr-pager-info {
+  all: initial;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 12px !important;
+  color: #6c7086 !important;
+}
+
+/* ── Resize handle ──────────────────────────────────────────────────────────── */
+
+.socr-resize-handle {
+  all: initial;
+  display: block;
+  position: absolute !important;
+  bottom: 0 !important;
+  right: 0 !important;
+  width: 16px !important;
+  height: 16px !important;
+  cursor: nwse-resize !important;
+  z-index: 1 !important;
+  /* Triangle indicator drawn with border trick */
+  border-style: solid !important;
+  border-width: 0 0 10px 10px !important;
+  border-color: transparent transparent #45475a transparent !important;
+  box-sizing: border-box !important;
+  border-radius: 0 0 10px 0 !important;
 }
