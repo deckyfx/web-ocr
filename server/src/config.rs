@@ -32,7 +32,7 @@ impl Config {
             ),
 
             dict_dir: PathBuf::from(
-                std::env::var("DICT_DIR").unwrap_or_else(|_| "./models/dictionary".to_string()),
+                std::env::var("DICT_DIR").unwrap_or_else(|_| "./models/jdict".to_string()),
             ),
 
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| "ocr.db".to_string()),
