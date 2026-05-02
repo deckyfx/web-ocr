@@ -1,0 +1,14 @@
+[application]
+name = "web-ocr-desktop"
+default_platform = "desktop"
+asset_dir = "assets"
+
+[bundle]
+identifier = "com.web-ocr.desktop"
+publisher = "deckyfx"
+
+[web.app]
+title = "Web OCR Desktop"
+
+[desktop]
+enable_file_drop = false
