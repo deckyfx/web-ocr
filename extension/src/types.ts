@@ -1,0 +1,109 @@
+// ── Engine / settings types ───────────────────────────────────────────────────
+
+export type OcrEngine         = "tesseract" | "server";
+export type ServerTranslation = "none" | "local" | "deepl";
+export type ClientTranslation = "none" | "deepl";
+export type DictMode          = "local" | "jisho";
+export type TesseractQuality  = "4.0.0" | "4.0.0_best";
+
+export interface Settings {
+  // Which OCR engine to use
+  ocrEngine: OcrEngine;
+
+  // Server-mode settings
+  serverUrl: string;
+  serverTranslation: ServerTranslation;
+  dictMode: DictMode;
+
+  // Tesseract-mode settings
+  tesseractLang: string;
+  tesseractQuality: TesseractQuality;
+
+  // Client-side translation (Tesseract mode; optionally server mode too)
+  clientTranslation: ClientTranslation;
+  deeplApiKey: string;
+  deeplTargetLang: string;
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  ocrEngine: "tesseract",
+  serverUrl: "",
+  serverTranslation: "none",
+  dictMode: "jisho",
+  tesseractLang: "jpn",
+  tesseractQuality: "4.0.0",
+  clientTranslation: "none",
+  deeplApiKey: "",
+  deeplTargetLang: "EN-US",
+};
+
+// ── Token / dictionary types ──────────────────────────────────────────────────
+
+export interface TokenInfo {
+  surface: string;
+  dictionary_form: string;
+  reading: string;
+  pos: string;
+  pos_detail: string;
+  conjugation_type: string;
+  conjugation_form: string;
+  is_unknown: boolean;
+}
+
+export interface JishoEntry {
+  word: string;
+  reading: string;
+  romaji: string;
+  meanings: string[];
+  jlpt: string | null;
+  is_common: boolean;
+}
+
+export interface SelectionRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  dpr: number;
+}
+
+// ── Messages: background → content ───────────────────────────────────────────
+
+export interface StartSelectionMsg  { type: "start-selection" }
+/** Background has cropped the image; content should run Tesseract in the engine iframe */
+export interface StartOcrLocalMsg   { type: "start-ocr-local"; image: string; lang: string; quality: string; requestId: string }
+export interface OcrResultMsg       { type: "ocr-result"; text: string; translation: string | null; elapsed_ms: number }
+export interface OcrErrorMsg        { type: "ocr-error"; message: string }
+export interface ExplainResultMsg   { type: "explain-result"; tokens: TokenInfo[]; definitions: (JishoEntry | null)[]; mode: "local" | "jisho" }
+export interface ExplainErrorMsg    { type: "explain-error"; message: string }
+
+export type ToContentMsg =
+  | StartSelectionMsg
+  | StartOcrLocalMsg
+  | OcrResultMsg
+  | OcrErrorMsg
+  | ExplainResultMsg
+  | ExplainErrorMsg;
+
+// ── Messages: content → background ───────────────────────────────────────────
+
+export interface SelectionCompleteMsg { type: "selection-complete"; rect: SelectionRect }
+/** Tesseract finished; background should do translation and send ocr-result back */
+export interface OcrLocalDoneMsg      { type: "ocr-local-done"; requestId: string; text: string; elapsed_ms: number }
+export interface ExplainRequestMsg    { type: "explain-request"; text: string }
+
+export type FromContentMsg =
+  | SelectionCompleteMsg
+  | OcrLocalDoneMsg
+  | ExplainRequestMsg;
+
+// ── Messages: engine iframe ↔ content (window.postMessage) ───────────────────
+
+export interface EngineReadyMsg      { type: "engine-ready" }
+export interface EngineOcrRequestMsg { type: "ocr-request"; requestId: string; image: string; lang: string; quality: string }
+export interface EngineProgressMsg   { type: "ocr-progress"; requestId: string; status: string; progress: number }
+export interface EngineResultMsg     { type: "ocr-result";   requestId: string; text: string }
+export interface EngineErrorMsg      { type: "ocr-error";    requestId: string; message: string }
+
+export type ToEngineMsg   = EngineOcrRequestMsg;
+export type FromEngineMsg = EngineReadyMsg | EngineProgressMsg | EngineResultMsg | EngineErrorMsg;

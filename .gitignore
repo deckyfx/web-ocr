@@ -1,0 +1,29 @@
+# ── Rust ──────────────────────────────────────────────────────────────────────
+target/
+**/*.rs.bk
+Cargo.lock
+
+# ── Bun / Node ────────────────────────────────────────────────────────────────
+node_modules/
+bun.lockb
+dist/
+.cache/
+
+# ── Environment ───────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Project-specific ──────────────────────────────────────────────────────────
+server/models/
+server/ocr.db
+server/ocr.db-wal
+extension/selfhost-ocr.tar.gz
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── etc ────────────────────────────────────────────────────────────────────────
+server/server
+mighty-wiggling-cascade.md

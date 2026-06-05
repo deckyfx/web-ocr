@@ -1,5 +1,0 @@
-https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.js
-https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs
-https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.wasm
-
-https://huggingface.co/spaces/ibm-granite/granite-docling-258M-WebGPU/raw/main/parser.js
