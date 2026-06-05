@@ -117,6 +117,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 Definitions = analyze.Definitions;
                 ElapsedMs   = analyze.ElapsedMs;
             }
+            else
+            {
+                Tokens      = [];
+                Definitions = [];
+            }
 
             OnPropertyChanged(nameof(HasResults));
             Status = AppStatus.Idle;
@@ -167,7 +172,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public void SaveSettings(AppSettings settings)
     {
         Settings = settings;
-        SettingsStore.Save(settings);
+        if (!SettingsStore.Save(settings))
+        {
+            ErrorMessage = $"Settings not saved: {SettingsStore.LastSaveError}";
+            Status = AppStatus.Error;
+        }
         Server.Reinitialize(settings);
     }
 

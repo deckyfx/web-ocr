@@ -1,3 +1,4 @@
+using System;
 using CommunityToolkit.Mvvm.ComponentModel;
 using WebOcrDesktop.Models;
 
@@ -20,11 +21,18 @@ public partial class SettingsViewModel : ObservableObject
         _dictionaryMode  = s.DictionaryMode;
     }
 
-    public AppSettings ToSettings() => new()
+    public AppSettings ToSettings()
     {
-        ServerUrl       = ServerUrl.Trim(),
-        ApiKey          = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim(),
-        TranslateEngine = TranslateEngine,
-        DictionaryMode  = DictionaryMode,
-    };
+        var url = ServerUrl.Trim();
+        if (!Uri.TryCreate(url, UriKind.Absolute, out _))
+            throw new ArgumentException($"Invalid server URL: \"{url}\"");
+
+        return new AppSettings
+        {
+            ServerUrl       = url,
+            ApiKey          = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim(),
+            TranslateEngine = TranslateEngine,
+            DictionaryMode  = DictionaryMode,
+        };
+    }
 }

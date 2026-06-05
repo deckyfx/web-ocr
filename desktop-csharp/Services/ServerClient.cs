@@ -13,9 +13,18 @@ public sealed class ServerClient : IDisposable
 
     public ServerClient(AppSettings settings)
     {
-        _http = new HttpClient { BaseAddress = new Uri(settings.ServerUrl), Timeout = TimeSpan.FromSeconds(120) };
+        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+        ApplySettings(settings);
+    }
+
+    private void ApplySettings(AppSettings settings)
+    {
+        if (Uri.TryCreate(settings.ServerUrl?.Trim(), UriKind.Absolute, out var uri))
+            _http.BaseAddress = uri;
+
+        _http.DefaultRequestHeaders.Remove("X-Api-Key");
         if (!string.IsNullOrWhiteSpace(settings.ApiKey))
-            _http.DefaultRequestHeaders.Add("X-Api-Key", settings.ApiKey);
+            _http.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", settings.ApiKey);
     }
 
     public async Task<HealthResponse?> HealthAsync()
@@ -42,13 +51,7 @@ public sealed class ServerClient : IDisposable
             ?? throw new InvalidOperationException("Empty analyze response");
     }
 
-    public void Reinitialize(AppSettings settings)
-    {
-        _http.BaseAddress = new Uri(settings.ServerUrl);
-        _http.DefaultRequestHeaders.Remove("X-Api-Key");
-        if (!string.IsNullOrWhiteSpace(settings.ApiKey))
-            _http.DefaultRequestHeaders.Add("X-Api-Key", settings.ApiKey);
-    }
+    public void Reinitialize(AppSettings settings) => ApplySettings(settings);
 
     public void Dispose() => _http.Dispose();
 }

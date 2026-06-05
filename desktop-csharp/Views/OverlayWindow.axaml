@@ -8,7 +8,7 @@
         WindowDecorations="None"
         WindowStartupLocation="Manual"
         Topmost="True"
-        Cursor="Crosshair"
+        Cursor="Cross"
         KeyboardNavigation.TabNavigation="None">
 
     <Canvas x:Name="OverlayCanvas"

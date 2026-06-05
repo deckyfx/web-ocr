@@ -35,9 +35,12 @@ public partial class MainWindow : Window
         var screen = Screens.Primary;
         if (screen is null) return;
 
+        // Height is NaN until SizeToContent has run (first layout pass).
+        // Use MinHeight as fallback so the window always lands on-screen.
+        var h  = double.IsNaN(Height) || Height < 1.0 ? MinHeight : Height;
         var wa = screen.WorkingArea;
         Position = new PixelPoint(
-            wa.X + wa.Width  - (int)Width  - 20,
-            wa.Y + wa.Height - (int)Height - 20);
+            wa.X + wa.Width  - (int)Width - 20,
+            wa.Y + wa.Height - (int)h     - 20);
     }
 }

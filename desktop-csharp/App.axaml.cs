@@ -93,8 +93,8 @@ public partial class App : Application
         Dispatcher.UIThread.Post(() =>
         {
             if (_mainWindow is null) return;
-            _mainWindow.PositionNearTray();
-            _mainWindow.Show();
+            _mainWindow.Show();              // Show first so SizeToContent runs
+            _mainWindow.PositionNearTray();  // Then position with known Height
             _mainWindow.Activate();
         });
     }
@@ -124,6 +124,9 @@ public partial class App : Application
         settingsItem.Click += (_, _) => Dispatcher.UIThread.Post(() =>
         {
             if (_vm is null || _mainWindow is null) return;
+            // ShowDialog requires a visible owner window
+            _mainWindow.Show();
+            _mainWindow.Activate();
             var win = new SettingsWindow();
             win.LoadSettings(_vm.Settings);
             win.SettingsSaved += s => _vm.SaveSettingsCommand.Execute(s);

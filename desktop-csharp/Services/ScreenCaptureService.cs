@@ -50,22 +50,36 @@ public sealed class ScreenCaptureService
         int h = GetSystemMetrics(SM_CYSCREEN);
 
         nint hScreen = GetDC(0);
-        nint hDC     = CreateCompatibleDC(hScreen);
-        nint hBitmap = CreateCompatibleBitmap(hScreen, w, h);
-        nint hOld    = SelectObject(hDC, hBitmap);
+        if (hScreen == 0) throw new InvalidOperationException("GetDC failed");
 
-        BitBlt(hDC, 0, 0, w, h, hScreen, 0, 0, SRCCOPY);
-        SelectObject(hDC, hOld);
+        nint hDC     = 0;
+        nint hBitmap = 0;
+        try
+        {
+            hDC = CreateCompatibleDC(hScreen);
+            if (hDC == 0) throw new InvalidOperationException("CreateCompatibleDC failed");
 
-        var bi    = new BITMAPINFOHEADER { biSize = 40, biWidth = w, biHeight = -h, biPlanes = 1, biBitCount = 32, biCompression = 0 };
-        var bytes = new byte[w * h * 4];
-        GetDIBits(hDC, hBitmap, 0, (uint)h, bytes, ref bi, DIB_RGB_COLORS);
+            hBitmap = CreateCompatibleBitmap(hScreen, w, h);
+            if (hBitmap == 0) throw new InvalidOperationException("CreateCompatibleBitmap failed");
 
-        DeleteObject(hBitmap);
-        DeleteDC(hDC);
-        ReleaseDC(0, hScreen);
+            nint hOld = SelectObject(hDC, hBitmap);
+            if (!BitBlt(hDC, 0, 0, w, h, hScreen, 0, 0, SRCCOPY))
+                throw new InvalidOperationException("BitBlt failed");
+            SelectObject(hDC, hOld);
 
-        return BgraToPng(bytes, w, h);
+            var bi    = new BITMAPINFOHEADER { biSize = 40, biWidth = w, biHeight = -h, biPlanes = 1, biBitCount = 32, biCompression = 0 };
+            var bytes = new byte[w * h * 4];
+            if (GetDIBits(hDC, hBitmap, 0, (uint)h, bytes, ref bi, DIB_RGB_COLORS) == 0)
+                throw new InvalidOperationException("GetDIBits failed");
+
+            return BgraToPng(bytes, w, h);
+        }
+        finally
+        {
+            if (hBitmap != 0) DeleteObject(hBitmap);
+            if (hDC     != 0) DeleteDC(hDC);
+            ReleaseDC(0, hScreen);
+        }
     }
 
     // ── Linux X11 ────────────────────────────────────────────────────────────
@@ -78,9 +92,11 @@ public sealed class ScreenCaptureService
         int  screen = XDefaultScreen(display);
         nint root   = XRootWindow(display, screen);
 
-        XGetWindowAttributes(display, root, out var attrs);
-        int w = attrs.width;
-        int h = attrs.height;
+        // Use XDisplayWidth/Height instead of XGetWindowAttributes to avoid
+        // struct size mismatch (real XWindowAttributes is ~128 bytes; a smaller
+        // struct causes stack corruption → SIGSEGV that bypasses .NET catch).
+        int w = XDisplayWidth(display, screen);
+        int h = XDisplayHeight(display, screen);
 
         // ZPixmap=2, AllPlanes=0xFFFFFFFFFFFFFFFF
         nint ximg = XGetImage(display, root, 0, 0, (uint)w, (uint)h, 0xFFFFFFFFFFFFFFFF, 2);
@@ -90,18 +106,35 @@ public sealed class ScreenCaptureService
             throw new InvalidOperationException("XGetImage returned null");
         }
 
-        // XImage layout: data ptr at offset 16, bytes_per_line at offset 36
-        nint dataPtr = Marshal.ReadIntPtr(ximg, 16);
-        int  bpl     = Marshal.ReadInt32(ximg, 36);
+        // Use a typed struct instead of magic offsets so the fields are
+        // always read at the correct platform-specific positions.
+        var xi   = Marshal.PtrToStructure<XImage>(ximg);
+        nint dataPtr = xi.Data;
+        int  bpl     = xi.BytesPerLine;
 
-        var raw = new byte[bpl * h];
-        Marshal.Copy(dataPtr, raw, 0, raw.Length);
+        // Copy row-by-row to strip any alignment padding X11 adds per scanline.
+        int stride = w * 4;
+        var pixels = new byte[stride * h];
+        try
+        {
+            if (bpl == stride)
+            {
+                Marshal.Copy(dataPtr, pixels, 0, pixels.Length);
+            }
+            else
+            {
+                for (int row = 0; row < h; row++)
+                    Marshal.Copy(dataPtr + row * bpl, pixels, row * stride, stride);
+            }
+        }
+        finally
+        {
+            XDestroyImage(ximg);
+            XCloseDisplay(display);
+        }
 
-        XDestroyImage(ximg);
-        XCloseDisplay(display);
-
-        // X11 ZPixmap = BGRA/BGRx 32-bit
-        return BgraToPng(raw[..(w * h * 4)], w, h);
+        // X11 ZPixmap delivers BGRA/BGRx 32-bit scanlines
+        return BgraToPng(pixels, w, h);
     }
 
     // ── Pixel conversion ─────────────────────────────────────────────────────
@@ -119,13 +152,33 @@ public sealed class ScreenCaptureService
 
     // ── X11 P/Invoke ─────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// XImage layout on LP64 Linux (64-bit). Field order matches Xlib.h exactly:
+    /// width/height (int×2), xoffset/format (int×2), data (ptr), byte_order/
+    /// bitmap_unit/bitmap_bit_order/bitmap_pad/depth/bytes_per_line/bits_per_pixel (int×7).
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    private struct XWindowAttributes { public int x, y, width, height; }
+    private struct XImage
+    {
+        public int  Width;
+        public int  Height;
+        public int  XOffset;
+        public int  Format;
+        public nint Data;           // char* — 8 bytes on 64-bit
+        public int  ByteOrder;
+        public int  BitmapUnit;
+        public int  BitmapBitOrder;
+        public int  BitmapPad;
+        public int  Depth;
+        public int  BytesPerLine;
+        public int  BitsPerPixel;
+    }
 
     [DllImport("libX11.so.6")] private static extern nint XOpenDisplay(nint displayName);
     [DllImport("libX11.so.6")] private static extern int  XDefaultScreen(nint display);
     [DllImport("libX11.so.6")] private static extern nint XRootWindow(nint display, int screen);
-    [DllImport("libX11.so.6")] private static extern int  XGetWindowAttributes(nint display, nint window, out XWindowAttributes attrs);
+    [DllImport("libX11.so.6")] private static extern int  XDisplayWidth(nint display, int screen);
+    [DllImport("libX11.so.6")] private static extern int  XDisplayHeight(nint display, int screen);
     [DllImport("libX11.so.6")] private static extern nint XGetImage(nint display, nint drawable, int x, int y, uint width, uint height, ulong planeMask, int format);
     [DllImport("libX11.so.6")] private static extern void XDestroyImage(nint image);
     [DllImport("libX11.so.6")] private static extern void XCloseDisplay(nint display);

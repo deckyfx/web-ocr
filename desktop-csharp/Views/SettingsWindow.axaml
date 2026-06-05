@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:WebOcrDesktop.ViewModels"
+        xmlns:views="using:WebOcrDesktop.Views"
         x:Class="WebOcrDesktop.Views.SettingsWindow"
         x:DataType="vm:SettingsViewModel"
         Title="Settings — Web OCR"
@@ -56,13 +57,10 @@
                        FontWeight="SemiBold"
                        Foreground="{DynamicResource Subtext0Brush}" />
             <ComboBox SelectedItem="{Binding TranslateEngine}"
+                      ItemsSource="{x:Static views:SettingsWindow.TranslateEngines}"
                       HorizontalAlignment="Stretch"
                       Background="{DynamicResource Surface0Brush}"
-                      Foreground="{DynamicResource TextBrush}">
-                <ComboBoxItem Content="none" />
-                <ComboBoxItem Content="local" />
-                <ComboBoxItem Content="deepl" />
-            </ComboBox>
+                      Foreground="{DynamicResource TextBrush}" />
         </StackPanel>
 
         <!-- Dictionary Mode -->
@@ -72,12 +70,10 @@
                        FontWeight="SemiBold"
                        Foreground="{DynamicResource Subtext0Brush}" />
             <ComboBox SelectedItem="{Binding DictionaryMode}"
+                      ItemsSource="{x:Static views:SettingsWindow.DictionaryModes}"
                       HorizontalAlignment="Stretch"
                       Background="{DynamicResource Surface0Brush}"
-                      Foreground="{DynamicResource TextBrush}">
-                <ComboBoxItem Content="local" />
-                <ComboBoxItem Content="jisho" />
-            </ComboBox>
+                      Foreground="{DynamicResource TextBrush}" />
         </StackPanel>
 
         <!-- Buttons -->

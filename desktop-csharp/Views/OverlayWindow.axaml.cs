@@ -56,6 +56,7 @@ public partial class OverlayWindow : Window
         if (e.GetCurrentPoint(OverlayCanvas).Properties.IsLeftButtonPressed)
         {
             _dragging = true;
+            e.Pointer.Capture(OverlayCanvas);
             _vm?.BeginSelection(e.GetPosition(OverlayCanvas));
         }
     }
@@ -71,6 +72,7 @@ public partial class OverlayWindow : Window
         base.OnPointerReleased(e);
         if (!_dragging) return;
         _dragging = false;
+        e.Pointer.Capture(null);
 
         _vm?.EndSelection(e.GetPosition(OverlayCanvas));
 
@@ -90,6 +92,14 @@ public partial class OverlayWindow : Window
             Hide();
             RegionSelected?.Invoke(x, y, w, h);
         }
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        if (!_dragging) return;
+        _dragging = false;
+        _vm?.Reset(); // treat lost capture the same as Escape — cancel the selection
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
