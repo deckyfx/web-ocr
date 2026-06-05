@@ -129,7 +129,7 @@ public partial class App : Application
             _mainWindow.Activate();
             var win = new SettingsWindow();
             win.LoadSettings(_vm.Settings);
-            win.SettingsSaved += s => _vm.SaveSettingsCommand.Execute(s);
+            win.SettingsSaved += s => _vm.SaveSettings(s);
             win.ShowDialog(_mainWindow);
         });
         menu.Items.Add(settingsItem);

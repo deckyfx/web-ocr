@@ -18,7 +18,7 @@ public partial class MainWindow : Window
         if (DataContext is not ViewModels.MainViewModel vm) return;
         var win = new SettingsWindow();
         win.LoadSettings(vm.Settings);
-        win.SettingsSaved += s => vm.SaveSettingsCommand.Execute(s);
+        win.SettingsSaved += s => vm.SaveSettings(s);
         win.ShowDialog(this);
     }
 

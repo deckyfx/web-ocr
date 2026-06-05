@@ -36,26 +36,60 @@ public static class SettingsStore
         }
         catch
         {
-            return new AppSettings();
+            // Corrupted or missing settings.json — still try to load stored API key.
+            return new AppSettings() with { ApiKey = LoadApiKey() };
         }
     }
 
     /// <returns>true on success; false on failure — check <see cref="LastSaveError"/>.</returns>
     public static bool Save(AppSettings settings)
     {
+        var tmpJson   = FilePath   + ".tmp";
+        var tmpApiKey = ApiKeyPath + ".tmp";
         try
         {
             LastSaveError = null;
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(settings, JsonOpts));
-            SaveApiKey(settings.ApiKey);
+
+            // Stage both files as .tmp so neither target is partially updated.
+            File.WriteAllText(tmpJson, JsonSerializer.Serialize(settings, JsonOpts));
+
+            bool hasKey = !string.IsNullOrEmpty(settings.ApiKey);
+            if (hasKey)
+            {
+                string stored = OperatingSystem.IsWindows()
+                    ? EncryptDpapi(settings.ApiKey!)
+                    : Convert.ToBase64String(Encoding.UTF8.GetBytes(settings.ApiKey!));
+                File.WriteAllText(tmpApiKey, stored);
+                if (!OperatingSystem.IsWindows())
+                {
+                    try { File.SetUnixFileMode(tmpApiKey, UnixFileMode.UserRead | UnixFileMode.UserWrite); }
+                    catch { /* chmod 600 best-effort */ }
+                }
+            }
+
+            // Both writes succeeded — atomically replace the real files.
+            File.Move(tmpJson, FilePath, overwrite: true);
+
+            if (hasKey)
+                File.Move(tmpApiKey, ApiKeyPath, overwrite: true);
+            else if (File.Exists(ApiKeyPath))
+                File.Delete(ApiKeyPath);
+
             return true;
         }
         catch (Exception ex)
         {
             LastSaveError = ex.Message;
+            TryDelete(tmpJson);
+            TryDelete(tmpApiKey);
             return false;
         }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { }
     }
 
     // ── API-key secure storage ────────────────────────────────────────────────
@@ -74,26 +108,6 @@ public static class SettingsStore
             return Encoding.UTF8.GetString(Convert.FromBase64String(stored));
         }
         catch { return null; }
-    }
-
-    private static void SaveApiKey(string? key)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(ApiKeyPath)!);
-
-        if (string.IsNullOrEmpty(key))
-        {
-            if (File.Exists(ApiKeyPath)) File.Delete(ApiKeyPath);
-            return;
-        }
-
-        string stored = OperatingSystem.IsWindows()
-            ? EncryptDpapi(key)
-            : Convert.ToBase64String(Encoding.UTF8.GetBytes(key));
-
-        File.WriteAllText(ApiKeyPath, stored);
-
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(ApiKeyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
     [SupportedOSPlatform("windows")]

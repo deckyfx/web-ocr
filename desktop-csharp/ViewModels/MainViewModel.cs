@@ -1,13 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using Avalonia;
 using Avalonia.Input.Platform;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
-using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using WebOcrDesktop.Models;
 using WebOcrDesktop.Services;
 
@@ -15,28 +16,61 @@ namespace WebOcrDesktop.ViewModels;
 
 public enum AppStatus { Idle, Capturing, Selecting, Analyzing, Error }
 
-public partial class MainViewModel : ObservableObject, IDisposable
+public class MainViewModel : INotifyPropertyChanged, IDisposable
 {
-    // ── Services ─────────────────────────────────────────────────────────────
+    // ── INotifyPropertyChanged ────────────────────────────────────────────────
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(name);
+        return true;
+    }
+
+    // ── Services ──────────────────────────────────────────────────────────────
     private readonly ScreenCaptureService _capture = new();
     private readonly HotkeyService        _hotkey  = new();
     public  readonly ServerClient         Server;
     public  AppSettings Settings { get; private set; }
 
-    // ── Bound state ──────────────────────────────────────────────────────────
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(StatusText))] private AppStatus _status = AppStatus.Idle;
-    [ObservableProperty] private string?       _errorMessage;
-    [ObservableProperty] private Bitmap?       _screenshotBitmap;
-    [ObservableProperty] private string?       _ocrText;
-    [ObservableProperty] private string?       _translation;
-    [ObservableProperty] private long          _elapsedMs;
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(TokenCards))]
-    private List<TokenInfo> _tokens = [];
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(TokenCards))]
+    // ── Observable properties ─────────────────────────────────────────────────
+    private AppStatus        _status = AppStatus.Idle;
+    private string?          _errorMessage;
+    private Bitmap?          _screenshotBitmap;
+    private string?          _ocrText;
+    private string?          _translation;
+    private long             _elapsedMs;
+    private List<TokenInfo>  _tokens      = [];
     private List<Definition?> _definitions = [];
+
+    public AppStatus Status
+    {
+        get => _status;
+        set { if (SetProperty(ref _status, value)) OnPropertyChanged(nameof(StatusText)); }
+    }
+
+    public string? ErrorMessage    { get => _errorMessage;    set => SetProperty(ref _errorMessage,    value); }
+    public Bitmap? ScreenshotBitmap { get => _screenshotBitmap; set => SetProperty(ref _screenshotBitmap, value); }
+    public string? OcrText         { get => _ocrText;         set => SetProperty(ref _ocrText,         value); }
+    public string? Translation     { get => _translation;     set => SetProperty(ref _translation,     value); }
+    public long    ElapsedMs       { get => _elapsedMs;       set => SetProperty(ref _elapsedMs,       value); }
+
+    public List<TokenInfo> Tokens
+    {
+        get => _tokens;
+        set { if (SetProperty(ref _tokens, value)) OnPropertyChanged(nameof(TokenCards)); }
+    }
+
+    public List<Definition?> Definitions
+    {
+        get => _definitions;
+        set { if (SetProperty(ref _definitions, value)) OnPropertyChanged(nameof(TokenCards)); }
+    }
 
     public string StatusText => Status switch
     {
@@ -50,7 +84,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public bool HasResults => OcrText is { Length: > 0 };
 
-    /// <summary>Zips Tokens + Definitions into card models for the TokenList control.</summary>
     public List<TokenCardModel> TokenCards =>
         Tokens.Select((t, i) => new TokenCardModel(t, i < Definitions.Count ? Definitions[i] : null))
               .Where(c => c.Token.Pos is not ("助詞" or "助動詞" or "記号" or "接続詞" or "感動詞"))
@@ -59,10 +92,19 @@ public partial class MainViewModel : ObservableObject, IDisposable
     // Raw PNG bytes for cropping (not bound to UI)
     public byte[]? ScreenshotPng { get; private set; }
 
+    // ── Commands ──────────────────────────────────────────────────────────────
+    public ICommand StartCaptureCommand  { get; }
+    public ICommand CopyOcrTextCommand   { get; }
+    public ICommand ClearResultsCommand  { get; }
+
     public MainViewModel()
     {
         Settings = SettingsStore.Load();
         Server   = new ServerClient(Settings);
+
+        StartCaptureCommand = new DelegateCommand(async () => await StartCaptureAsync());
+        CopyOcrTextCommand  = new DelegateCommand(async () => await CopyOcrTextAsync());
+        ClearResultsCommand = new DelegateCommand(ClearResults);
 
         _hotkey.HotkeyFired += () =>
             Dispatcher.UIThread.Post(() => _ = StartCaptureAsync());
@@ -70,9 +112,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _hotkey.Start();
     }
 
-    // ── Commands ──────────────────────────────────────────────────────────────
+    // ── Capture flow ──────────────────────────────────────────────────────────
 
-    [RelayCommand]
     public async Task StartCaptureAsync()
     {
         if (Status is AppStatus.Capturing or AppStatus.Selecting or AppStatus.Analyzing) return;
@@ -81,7 +122,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         CaptureRequested?.Invoke();
     }
 
-    /// <summary>Called by App after the main window is hidden and screenshot is taken.</summary>
     public async Task OnScreenshotReadyAsync(byte[] png)
     {
         ScreenshotPng = png;
@@ -93,7 +133,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SelectionRequested?.Invoke();
     }
 
-    /// <summary>Called by OverlayWindow when user completes a selection.</summary>
     public async Task OnRegionSelectedAsync(int x, int y, int w, int h)
     {
         if (ScreenshotPng is null) return;
@@ -142,7 +181,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Status = AppStatus.Idle;
     }
 
-    [RelayCommand]
     public async Task CopyOcrTextAsync()
     {
         if (OcrText is null) return;
@@ -154,7 +192,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
             await clipboard.SetTextAsync(OcrText);
     }
 
-    [RelayCommand]
     public void ClearResults()
     {
         OcrText          = null;
@@ -168,7 +205,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HasResults));
     }
 
-    [RelayCommand]
     public void SaveSettings(AppSettings settings)
     {
         Settings = settings;

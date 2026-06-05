@@ -54,6 +54,7 @@ public sealed class ScreenCaptureService
 
         nint hDC     = 0;
         nint hBitmap = 0;
+        nint hOld    = 0;  // declared outside try so finally can restore it
         try
         {
             hDC = CreateCompatibleDC(hScreen);
@@ -62,10 +63,12 @@ public sealed class ScreenCaptureService
             hBitmap = CreateCompatibleBitmap(hScreen, w, h);
             if (hBitmap == 0) throw new InvalidOperationException("CreateCompatibleBitmap failed");
 
-            nint hOld = SelectObject(hDC, hBitmap);
+            hOld = SelectObject(hDC, hBitmap);
+            if (hOld == 0 || hOld == -1)  // NULL or HGDI_ERROR
+                throw new InvalidOperationException("SelectObject failed");
+
             if (!BitBlt(hDC, 0, 0, w, h, hScreen, 0, 0, SRCCOPY))
                 throw new InvalidOperationException("BitBlt failed");
-            SelectObject(hDC, hOld);
 
             var bi    = new BITMAPINFOHEADER { biSize = 40, biWidth = w, biHeight = -h, biPlanes = 1, biBitCount = 32, biCompression = 0 };
             var bytes = new byte[w * h * 4];
@@ -76,6 +79,8 @@ public sealed class ScreenCaptureService
         }
         finally
         {
+            // Reselect original object before deleting hBitmap (must not delete while selected).
+            if (hDC != 0 && hOld != 0 && hOld != -1) SelectObject(hDC, hOld);
             if (hBitmap != 0) DeleteObject(hBitmap);
             if (hDC     != 0) DeleteDC(hDC);
             ReleaseDC(0, hScreen);
@@ -106,35 +111,36 @@ public sealed class ScreenCaptureService
             throw new InvalidOperationException("XGetImage returned null");
         }
 
-        // Use a typed struct instead of magic offsets so the fields are
-        // always read at the correct platform-specific positions.
-        var xi   = Marshal.PtrToStructure<XImage>(ximg);
-        nint dataPtr = xi.Data;
-        int  bpl     = xi.BytesPerLine;
-
-        // Copy row-by-row to strip any alignment padding X11 adds per scanline.
-        int stride = w * 4;
-        var pixels = new byte[stride * h];
+        // try/finally opened immediately after XGetImage so PtrToStructure,
+        // pixel buffer allocation, and copy are all covered by cleanup.
         try
         {
+            // Use a typed struct instead of magic offsets so the fields are
+            // always read at the correct platform-specific positions.
+            var xi       = Marshal.PtrToStructure<XImage>(ximg);
+            nint dataPtr = xi.Data;
+            int  bpl     = xi.BytesPerLine;
+
+            // Copy row-by-row to strip any alignment padding X11 adds per scanline.
+            int stride = w * 4;
+            var pixels = new byte[stride * h];
+
             if (bpl == stride)
-            {
                 Marshal.Copy(dataPtr, pixels, 0, pixels.Length);
-            }
             else
-            {
                 for (int row = 0; row < h; row++)
                     Marshal.Copy(dataPtr + row * bpl, pixels, row * stride, stride);
-            }
+
+            // X11 ZPixmap delivers BGRA/BGRx 32-bit scanlines.
+            // BgraToPng copies into a SkiaSharp buffer so it is safe to call
+            // before XDestroyImage releases the X11 pixel memory.
+            return BgraToPng(pixels, w, h);
         }
         finally
         {
             XDestroyImage(ximg);
             XCloseDisplay(display);
         }
-
-        // X11 ZPixmap delivers BGRA/BGRx 32-bit scanlines
-        return BgraToPng(pixels, w, h);
     }
 
     // ── Pixel conversion ─────────────────────────────────────────────────────

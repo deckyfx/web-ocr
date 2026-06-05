@@ -1,18 +1,47 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using Avalonia;
-using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace WebOcrDesktop.ViewModels;
 
-public partial class OverlayViewModel : ObservableObject
+public class OverlayViewModel : INotifyPropertyChanged
 {
-    [ObservableProperty] private double _canvasWidth  = 1920;
-    [ObservableProperty] private double _canvasHeight = 1080;
+    public event PropertyChangedEventHandler? PropertyChanged;
 
-    // Selection in canvas (display) pixels
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SelectionRect))] private Point _selectionStart;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SelectionRect))] private Point _selectionEnd;
-    [ObservableProperty] private bool _isSelecting;
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(name);
+        return true;
+    }
+
+    private double _canvasWidth  = 1920;
+    private double _canvasHeight = 1080;
+    private Point  _selectionStart;
+    private Point  _selectionEnd;
+    private bool   _isSelecting;
+
+    public double CanvasWidth  { get => _canvasWidth;  set => SetProperty(ref _canvasWidth,  value); }
+    public double CanvasHeight { get => _canvasHeight; set => SetProperty(ref _canvasHeight, value); }
+    public bool   IsSelecting  { get => _isSelecting;  set => SetProperty(ref _isSelecting,  value); }
+
+    public Point SelectionStart
+    {
+        get => _selectionStart;
+        set { if (SetProperty(ref _selectionStart, value)) OnPropertyChanged(nameof(SelectionRect)); }
+    }
+
+    public Point SelectionEnd
+    {
+        get => _selectionEnd;
+        set { if (SetProperty(ref _selectionEnd, value)) OnPropertyChanged(nameof(SelectionRect)); }
+    }
 
     public Rect SelectionRect
     {

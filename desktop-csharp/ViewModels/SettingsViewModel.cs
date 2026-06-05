@@ -1,15 +1,35 @@
 using System;
-using CommunityToolkit.Mvvm.ComponentModel;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using WebOcrDesktop.Models;
 
 namespace WebOcrDesktop.ViewModels;
 
-public partial class SettingsViewModel : ObservableObject
+public class SettingsViewModel : INotifyPropertyChanged
 {
-    [ObservableProperty] private string _serverUrl  = "http://localhost:3579";
-    [ObservableProperty] private string _apiKey     = "";
-    [ObservableProperty] private string _translateEngine = "none";
-    [ObservableProperty] private string _dictionaryMode  = "local";
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value;
+        OnPropertyChanged(name);
+        return true;
+    }
+
+    private string _serverUrl       = "http://localhost:3579";
+    private string _apiKey          = "";
+    private string _translateEngine = "none";
+    private string _dictionaryMode  = "local";
+
+    public string ServerUrl       { get => _serverUrl;       set => SetProperty(ref _serverUrl,       value); }
+    public string ApiKey          { get => _apiKey;          set => SetProperty(ref _apiKey,           value); }
+    public string TranslateEngine { get => _translateEngine; set => SetProperty(ref _translateEngine,  value); }
+    public string DictionaryMode  { get => _dictionaryMode;  set => SetProperty(ref _dictionaryMode,   value); }
 
     public SettingsViewModel() { }
 

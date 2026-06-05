@@ -10,6 +10,7 @@ namespace WebOcrDesktop.Services;
 public sealed class ServerClient : IDisposable
 {
     private readonly HttpClient _http;
+    private Uri _baseUri = new("http://localhost:3579");
 
     public ServerClient(AppSettings settings)
     {
@@ -20,7 +21,7 @@ public sealed class ServerClient : IDisposable
     private void ApplySettings(AppSettings settings)
     {
         if (Uri.TryCreate(settings.ServerUrl?.Trim(), UriKind.Absolute, out var uri))
-            _http.BaseAddress = uri;
+            _baseUri = uri;
 
         _http.DefaultRequestHeaders.Remove("X-Api-Key");
         if (!string.IsNullOrWhiteSpace(settings.ApiKey))
@@ -29,14 +30,14 @@ public sealed class ServerClient : IDisposable
 
     public async Task<HealthResponse?> HealthAsync()
     {
-        try { return await _http.GetFromJsonAsync<HealthResponse>("/health"); }
+        try { return await _http.GetFromJsonAsync<HealthResponse>(new Uri(_baseUri, "/health")); }
         catch { return null; }
     }
 
     public async Task<OcrResponse> OcrAsync(string base64Image, string translateEngine = "none")
     {
         var req = new OcrRequest { Image = base64Image, TranslateEngine = translateEngine };
-        var resp = await _http.PostAsJsonAsync("/ocr", req);
+        var resp = await _http.PostAsJsonAsync(new Uri(_baseUri, "/ocr"), req);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<OcrResponse>()
             ?? throw new InvalidOperationException("Empty OCR response");
@@ -45,7 +46,7 @@ public sealed class ServerClient : IDisposable
     public async Task<AnalyzeResponse> AnalyzeAsync(string text, bool sanitize = true, string mode = "local")
     {
         var req = new AnalyzeRequest { Text = text, Sanitize = sanitize, Mode = mode };
-        var resp = await _http.PostAsJsonAsync("/analyze", req);
+        var resp = await _http.PostAsJsonAsync(new Uri(_baseUri, "/analyze"), req);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<AnalyzeResponse>()
             ?? throw new InvalidOperationException("Empty analyze response");
