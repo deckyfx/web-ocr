@@ -1,0 +1,105 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WebOcrDesktop.ViewModels"
+        x:Class="WebOcrDesktop.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Title="Settings — Web OCR"
+        Width="420"
+        SizeToContent="Height"
+        Background="{DynamicResource BaseBrush}"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+
+    <StackPanel Margin="20" Spacing="16">
+
+        <!-- Server URL -->
+        <StackPanel Spacing="4">
+            <TextBlock Text="Server URL"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource Subtext0Brush}" />
+            <TextBox Text="{Binding ServerUrl}"
+                     PlaceholderText="http://localhost:3579"
+                     Background="{DynamicResource Surface0Brush}"
+                     BorderBrush="{DynamicResource Surface1Brush}"
+                     Foreground="{DynamicResource TextBrush}"
+                     Padding="8,6"
+                     CornerRadius="6" />
+            <TextBlock Text="Leave as localhost when running your own server."
+                       FontSize="11"
+                       Foreground="{DynamicResource Overlay0Brush}" />
+        </StackPanel>
+
+        <!-- API Key -->
+        <StackPanel Spacing="4">
+            <TextBlock Text="API Key"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource Subtext0Brush}" />
+            <TextBox Text="{Binding ApiKey}"
+                     PasswordChar="•"
+                     PlaceholderText="Leave empty for self-hosted"
+                     Background="{DynamicResource Surface0Brush}"
+                     BorderBrush="{DynamicResource Surface1Brush}"
+                     Foreground="{DynamicResource TextBrush}"
+                     Padding="8,6"
+                     CornerRadius="6" />
+            <TextBlock Text="Required only when using the hosted service."
+                       FontSize="11"
+                       Foreground="{DynamicResource Overlay0Brush}" />
+        </StackPanel>
+
+        <!-- Translate Engine -->
+        <StackPanel Spacing="4">
+            <TextBlock Text="Translation Engine"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource Subtext0Brush}" />
+            <ComboBox SelectedItem="{Binding TranslateEngine}"
+                      HorizontalAlignment="Stretch"
+                      Background="{DynamicResource Surface0Brush}"
+                      Foreground="{DynamicResource TextBrush}">
+                <ComboBoxItem Content="none" />
+                <ComboBoxItem Content="local" />
+                <ComboBoxItem Content="deepl" />
+            </ComboBox>
+        </StackPanel>
+
+        <!-- Dictionary Mode -->
+        <StackPanel Spacing="4">
+            <TextBlock Text="Dictionary Mode"
+                       FontSize="12"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource Subtext0Brush}" />
+            <ComboBox SelectedItem="{Binding DictionaryMode}"
+                      HorizontalAlignment="Stretch"
+                      Background="{DynamicResource Surface0Brush}"
+                      Foreground="{DynamicResource TextBrush}">
+                <ComboBoxItem Content="local" />
+                <ComboBoxItem Content="jisho" />
+            </ComboBox>
+        </StackPanel>
+
+        <!-- Buttons -->
+        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,4,0,0">
+            <Button Grid.Column="1"
+                    Content="Cancel"
+                    Click="OnCancelClick"
+                    Margin="0,0,8,0"
+                    Padding="16,6"
+                    Background="{DynamicResource Surface0Brush}"
+                    Foreground="{DynamicResource Subtext1Brush}"
+                    BorderThickness="0"
+                    CornerRadius="6" />
+            <Button Grid.Column="2"
+                    Content="Save"
+                    Click="OnSaveClick"
+                    Padding="16,6"
+                    Background="{DynamicResource BlueBrush}"
+                    Foreground="{DynamicResource BaseBrush}"
+                    BorderThickness="0"
+                    CornerRadius="6" />
+        </Grid>
+
+    </StackPanel>
+</Window>

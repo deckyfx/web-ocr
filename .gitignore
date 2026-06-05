@@ -1,3 +1,10 @@
+# ── C# / .NET ────────────────────────────────────────────────────────────────
+desktop-csharp/bin/
+desktop-csharp/obj/
+server-csharp/bin/
+server-csharp/obj/
+*.user
+
 # ── Rust ──────────────────────────────────────────────────────────────────────
 target/
 **/*.rs.bk

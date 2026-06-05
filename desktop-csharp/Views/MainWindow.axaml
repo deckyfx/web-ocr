@@ -1,0 +1,119 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WebOcrDesktop.ViewModels"
+        xmlns:c="using:WebOcrDesktop.Controls"
+        x:Class="WebOcrDesktop.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="Web OCR"
+        Width="440"
+        MinWidth="360"
+        MinHeight="140"
+        SizeToContent="Height"
+        MaxHeight="700"
+        Background="{DynamicResource BaseBrush}"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="Manual"
+        CanResize="True">
+
+    <Window.Styles>
+        <!-- Ghost button: no background, just text -->
+        <Style Selector="Button.ghost">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource BlueBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Surface0Brush}" />
+        </Style>
+    </Window.Styles>
+
+    <DockPanel>
+
+        <!-- ── Title bar ──────────────────────────────────────────────── -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource CrustBrush}"
+                Padding="12,8">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+
+                <!-- App name + hotkey hint -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="Web OCR"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextBrush}" />
+                    <TextBlock Text="Super+Shift+O"
+                               FontSize="11"
+                               Foreground="{DynamicResource Overlay0Brush}"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Settings button -->
+                <Button Grid.Column="1"
+                        Content="⚙"
+                        FontSize="14"
+                        Classes="ghost"
+                        Padding="6,2"
+                        ToolTip.Tip="Settings"
+                        Click="OnSettingsClick" />
+
+                <!-- Hide button (not close — we hide to tray) -->
+                <Button Grid.Column="2"
+                        Content="−"
+                        FontSize="16"
+                        Classes="ghost"
+                        Padding="6,2"
+                        ToolTip.Tip="Hide to tray"
+                        Click="OnHideClick" />
+            </Grid>
+        </Border>
+
+        <!-- ── Status bar ─────────────────────────────────────────────── -->
+        <c:StatusBar DockPanel.Dock="Bottom" />
+
+        <!-- ── Capture button (shown when idle with no results) ───────── -->
+        <Button DockPanel.Dock="Top"
+                Content="Capture Screen Region"
+                Command="{Binding StartCaptureCommand}"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Margin="12,10"
+                Padding="0,8"
+                FontSize="13"
+                Background="{DynamicResource Surface0Brush}"
+                Foreground="{DynamicResource BlueBrush}"
+                BorderBrush="{DynamicResource Surface1Brush}"
+                CornerRadius="6" />
+
+        <!-- ── Results area (shown when HasResults) ───────────────────── -->
+        <ScrollViewer DockPanel.Dock="Top"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      IsVisible="{Binding HasResults}">
+            <StackPanel>
+
+                <Separator Background="{DynamicResource Surface0Brush}" Height="1" Margin="0" />
+                <c:OcrResultControl />
+
+                <Separator Background="{DynamicResource Surface0Brush}" Height="1" Margin="0"
+                           IsVisible="{Binding TokenCards.Count,
+                             Converter={x:Static vm:NonZeroConverter.Instance}}" />
+
+                <c:TokenList Margin="8,4"
+                             IsVisible="{Binding TokenCards.Count,
+                               Converter={x:Static vm:NonZeroConverter.Instance}}" />
+
+                <!-- Clear button -->
+                <Button Content="Clear"
+                        Command="{Binding ClearResultsCommand}"
+                        HorizontalAlignment="Right"
+                        Margin="12,4,12,8"
+                        Padding="12,4"
+                        FontSize="12"
+                        Classes="ghost" />
+            </StackPanel>
+        </ScrollViewer>
+
+    </DockPanel>
+</Window>

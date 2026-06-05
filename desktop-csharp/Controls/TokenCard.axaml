@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:m="using:WebOcrDesktop.Models"
+             xmlns:vm="using:WebOcrDesktop.ViewModels"
+             x:Class="WebOcrDesktop.Controls.TokenCard"
+             x:DataType="m:TokenCardModel">
+
+    <Border Background="{DynamicResource Surface0Brush}"
+            BorderBrush="{DynamicResource Surface1Brush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="10,8"
+            MinWidth="100"
+            MaxWidth="220">
+        <StackPanel Spacing="4">
+
+            <!-- Surface form -->
+            <TextBlock Text="{Binding Token.Surface}"
+                       FontSize="20"
+                       FontWeight="Medium"
+                       Foreground="{DynamicResource TextBrush}"
+                       TextWrapping="Wrap" />
+
+            <!-- Reading (hiragana) -->
+            <TextBlock Text="{Binding Token.Reading}"
+                       FontSize="12"
+                       Foreground="{DynamicResource Subtext0Brush}"
+                       IsVisible="{Binding Token.Reading,
+                         Converter={x:Static vm:StringNotEmptyConverter.Instance}}" />
+
+            <!-- JLPT badge + POS -->
+            <WrapPanel Orientation="Horizontal">
+                <Border Background="{DynamicResource PeachBrush}"
+                        CornerRadius="4"
+                        Padding="5,2"
+                        Margin="0,0,4,0"
+                        IsVisible="{Binding HasJlpt}">
+                    <TextBlock Text="{Binding JlptText}"
+                               FontSize="10"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource BaseBrush}" />
+                </Border>
+
+                <Border Background="{DynamicResource Surface1Brush}"
+                        CornerRadius="4"
+                        Padding="5,2">
+                    <TextBlock Text="{Binding Token.Pos}"
+                               FontSize="10"
+                               Foreground="{DynamicResource Subtext1Brush}" />
+                </Border>
+            </WrapPanel>
+
+            <!-- Meanings (up to 3) -->
+            <ItemsControl ItemsSource="{Binding Meanings}"
+                          IsVisible="{Binding HasDefinition}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource Subtext1Brush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,1,0,0" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+        </StackPanel>
+    </Border>
+</UserControl>

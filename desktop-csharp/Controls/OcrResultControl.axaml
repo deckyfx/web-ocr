@@ -1,0 +1,64 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:WebOcrDesktop.ViewModels"
+             x:Class="WebOcrDesktop.Controls.OcrResultControl"
+             x:DataType="vm:MainViewModel">
+
+    <StackPanel Spacing="8" Margin="12,8">
+
+        <!-- OCR text row -->
+        <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0"
+                       Text="OCR RESULT"
+                       FontSize="11"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource Subtext0Brush}"
+                       VerticalAlignment="Center"
+                       LetterSpacing="1" />
+
+            <Button Grid.Column="1"
+                    Content="Copy"
+                    Command="{Binding CopyOcrTextCommand}"
+                    FontSize="11"
+                    Padding="8,3"
+                    Classes="ghost" />
+        </Grid>
+
+        <!-- OCR text box (read-only, selectable) -->
+        <TextBox Text="{Binding OcrText}"
+                 IsReadOnly="True"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 MaxHeight="120"
+                 FontSize="15"
+                 FontFamily="Noto Sans CJK JP,Yu Gothic,Meiryo,sans-serif"
+                 Background="{DynamicResource MantleBrush}"
+                 BorderBrush="{DynamicResource Surface1Brush}"
+                 Foreground="{DynamicResource TextBrush}"
+                 Padding="8,6"
+                 CornerRadius="6" />
+
+        <!-- Translation -->
+        <StackPanel IsVisible="{Binding Translation,
+                      Converter={x:Static vm:StringNotEmptyConverter.Instance}}">
+            <TextBlock Text="TRANSLATION"
+                       FontSize="11"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource Subtext0Brush}"
+                       LetterSpacing="1"
+                       Margin="0,0,0,4" />
+            <TextBlock Text="{Binding Translation}"
+                       FontSize="13"
+                       Foreground="{DynamicResource Subtext1Brush}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- Elapsed time -->
+        <TextBlock FontSize="11"
+                   Foreground="{DynamicResource Overlay0Brush}"
+                   IsVisible="{Binding ElapsedMs, Converter={x:Static vm:NonZeroConverter.Instance}}">
+            <Run Text="{Binding ElapsedMs}" /><Run Text=" ms" />
+        </TextBlock>
+
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:WebOcrDesktop.ViewModels"
+             xmlns:c="using:WebOcrDesktop.Controls"
+             xmlns:m="using:WebOcrDesktop.Models"
+             x:Class="WebOcrDesktop.Controls.TokenList"
+             x:DataType="vm:MainViewModel">
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto"
+                  MaxHeight="300">
+        <ItemsControl ItemsSource="{Binding TokenCards}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="m:TokenCardModel">
+                    <c:TokenCard DataContext="{Binding}" Margin="4" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </ScrollViewer>
+</UserControl>
