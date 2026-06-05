@@ -1,5 +1,7 @@
 # Selfhost OCR
 
+> Forked from [brian-girko/image-reader](https://github.com/brian-girko/image-reader) — original OCR Image Reader extension by Brian Girko, licensed under MPL 2.0.
+
 A browser extension (MV3) that lets you select any region on screen and extract text via OCR. Supports two engines: **Tesseract.js** (runs entirely in-browser, no server needed) or a **self-hosted Rust server** for GPU-accelerated OCR with optional translation.
 
 ## Features
