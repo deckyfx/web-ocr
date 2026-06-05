@@ -1,40 +1,12 @@
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type TranslationEngine = "none" | "local" | "deepl";
-
-interface SelectionRect {
-  x: number; y: number; w: number; h: number; dpr: number;
-}
-
-interface TokenInfo {
-  surface: string;
-  dictionary_form: string;
-  reading: string;
-  pos: string;
-  pos_detail: string;
-}
-
-interface JishoEntry {
-  word: string;
-  reading: string;
-  romaji: string;
-  meanings: string[];
-  jlpt: string | null;
-  is_common: boolean;
-}
-
-interface SelectionCompleteMsg { type: "selection-complete"; rect: SelectionRect }
-interface CancelSelectionMsg   { type: "cancel-selection" }
-interface ExplainRequestMsg    { type: "explain-request"; text: string }
-
-interface StartSelectionMsg { type: "start-selection" }
-interface OcrResultMsg      { type: "ocr-result"; text: string; translation: string | null; elapsed_ms: number }
-interface OcrErrorMsg       { type: "ocr-error"; message: string }
-interface ExplainResultMsg  { type: "explain-result"; tokens: TokenInfo[]; definitions: (JishoEntry | null)[]; mode: "local" | "jisho" }
-interface ExplainErrorMsg   { type: "explain-error"; message: string }
-
-type ToContentMsg   = StartSelectionMsg | OcrResultMsg | OcrErrorMsg | ExplainResultMsg | ExplainErrorMsg;
-type FromContentMsg = SelectionCompleteMsg | CancelSelectionMsg | ExplainRequestMsg;
+import type {
+  Settings,
+  SelectionRect,
+  FromContentMsg,
+  ToContentMsg,
+  TokenInfo,
+  JishoEntry,
+} from "./types";
+import { DEFAULT_SETTINGS } from "./types";
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -52,8 +24,10 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
   const tabId = tab.id;
   if (!tabId) return;
 
-  const { serverUrl } = await chrome.storage.sync.get("serverUrl") as { serverUrl?: string };
-  if (!serverUrl) {
+  const settings = await loadSettings();
+
+  // If no engine is configured yet, open options
+  if (settings.ocrEngine === "server" && !settings.serverUrl) {
     await chrome.tabs.create({ url: chrome.runtime.getURL("options.html") });
     return;
   }
@@ -70,9 +44,9 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
       await sleep(40);
     }
 
-    chrome.tabs.sendMessage(tabId, { type: "start-selection" } as ToContentMsg);
+    sendToTab(tabId, { type: "start-selection" } satisfies ToContentMsg);
   } catch (e) {
-    console.error("Selfhost OCR: failed to inject content script:", e);
+    console.error("OCR: failed to inject content script:", e);
   }
 }
 
@@ -82,35 +56,98 @@ chrome.runtime.onMessage.addListener((msg: FromContentMsg, sender) => {
   const tabId = sender.tab?.id;
   if (msg.type === "selection-complete" && tabId !== undefined) {
     void handleSelection(msg.rect, tabId);
+  } else if (msg.type === "ocr-local-done" && tabId !== undefined) {
+    void handleLocalDone(msg.requestId, msg.text, msg.elapsed_ms, tabId);
   } else if (msg.type === "explain-request" && tabId !== undefined) {
     void handleExplain(msg.text, tabId);
   }
   return false;
 });
 
-// ── OCR + translate flow ──────────────────────────────────────────────────────
+// ── Selection → route by engine ───────────────────────────────────────────────
 
 async function handleSelection(rect: SelectionRect, tabId: number): Promise<void> {
-  const settings = await chrome.storage.sync.get(["serverUrl", "translationEngine"]) as {
-    serverUrl?: string;
-    translationEngine?: TranslationEngine;
-  };
+  const settings = await loadSettings();
 
-  const { serverUrl, translationEngine = "none" } = settings;
-  if (!serverUrl) return;
+  let dataUrl: string;
+  try {
+    dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
+  } catch (e) {
+    sendToTab(tabId, { type: "ocr-error", message: `Screenshot failed: ${errMsg(e)}` });
+    return;
+  }
+
+  const croppedB64 = await cropToBase64(dataUrl, rect);
+
+  if (settings.ocrEngine === "tesseract") {
+    await runTesseractFlow(croppedB64, settings, tabId);
+  } else {
+    await runServerFlow(croppedB64, settings, tabId);
+  }
+}
+
+// ── Tesseract flow ────────────────────────────────────────────────────────────
+
+async function runTesseractFlow(
+  imageB64: string,
+  settings: Settings,
+  tabId: number,
+): Promise<void> {
+  const requestId = crypto.randomUUID();
+
+  sendToTab(tabId, {
+    type: "start-ocr-local",
+    image: imageB64,
+    lang: settings.tesseractLang,
+    quality: settings.tesseractQuality,
+    requestId,
+  } satisfies ToContentMsg);
+  // Result comes back via "ocr-local-done" message from content script
+}
+
+// ── Handle Tesseract result + optional client-side translation ────────────────
+
+async function handleLocalDone(
+  _requestId: string,
+  text: string,
+  elapsed_ms: number,
+  tabId: number,
+): Promise<void> {
+  const settings = await loadSettings();
+
+  let translation: string | null = null;
+  if (text.trim() && settings.clientTranslation === "deepl" && settings.deeplApiKey) {
+    translation = await translateDeepL(text, settings.deeplTargetLang, settings.deeplApiKey)
+      .catch((e) => {
+        console.warn("DeepL translation failed:", e);
+        return null;
+      });
+  }
+
+  sendToTab(tabId, { type: "ocr-result", text, translation, elapsed_ms } satisfies ToContentMsg);
+}
+
+// ── Server flow ───────────────────────────────────────────────────────────────
+
+async function runServerFlow(
+  imageB64: string,
+  settings: Settings,
+  tabId: number,
+): Promise<void> {
+  if (!settings.serverUrl) {
+    sendToTab(tabId, { type: "ocr-error", message: "No server URL configured. Open settings." });
+    return;
+  }
+
+  const start = Date.now();
 
   try {
-    const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
-    const croppedB64 = await cropToBase64(dataUrl, rect);
-
-    const start = Date.now();
-
-    const res = await fetch(`${serverUrl.replace(/\/$/, "")}/ocr`, {
+    const res = await fetch(`${settings.serverUrl.replace(/\/$/, "")}/ocr`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        image: `data:image/png;base64,${croppedB64}`,
-        translate_engine: translationEngine,
+        image: `data:image/jpeg;base64,${imageB64}`,
+        translate_engine: settings.serverTranslation,
       }),
     });
 
@@ -127,27 +164,26 @@ async function handleSelection(rect: SelectionRect, tabId: number): Promise<void
       text: data.text,
       translation: data.translation ?? null,
       elapsed_ms: Date.now() - start,
-    });
+    } satisfies ToContentMsg);
   } catch (e) {
-    sendToTab(tabId, { type: "ocr-error", message: e instanceof Error ? e.message : String(e) });
+    sendToTab(tabId, { type: "ocr-error", message: errMsg(e) });
   }
 }
 
-// ── Explain flow ──────────────────────────────────────────────────────────────
+// ── Explain flow (server-only) ────────────────────────────────────────────────
 
 async function handleExplain(text: string, tabId: number): Promise<void> {
-  const settings = await chrome.storage.sync.get(["serverUrl", "dictMode"]) as {
-    serverUrl?: string;
-    dictMode?: "local" | "jisho";
-  };
-  const { serverUrl, dictMode = "jisho" } = settings;
-  if (!serverUrl) return;
+  const settings = await loadSettings();
+  if (!settings.serverUrl) {
+    sendToTab(tabId, { type: "explain-error", message: "Explain requires a configured server." });
+    return;
+  }
 
   try {
-    const res = await fetch(`${serverUrl.replace(/\/$/, "")}/analyze`, {
+    const res = await fetch(`${settings.serverUrl.replace(/\/$/, "")}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, sanitize: true, mode: dictMode }),
+      body: JSON.stringify({ text, sanitize: true, mode: settings.dictMode }),
     });
 
     if (!res.ok) {
@@ -156,20 +192,43 @@ async function handleExplain(text: string, tabId: number): Promise<void> {
       return;
     }
 
-    const data = await res.json() as {
-      tokens: TokenInfo[];
-      definitions: (JishoEntry | null)[];
-    };
+    const data = await res.json() as { tokens: TokenInfo[]; definitions: (JishoEntry | null)[] };
 
     sendToTab(tabId, {
       type: "explain-result",
       tokens: data.tokens,
       definitions: data.definitions,
-      mode: dictMode,
-    });
+      mode: settings.dictMode,
+    } satisfies ToContentMsg);
   } catch (e) {
-    sendToTab(tabId, { type: "explain-error", message: e instanceof Error ? e.message : String(e) });
+    sendToTab(tabId, { type: "explain-error", message: errMsg(e) });
   }
+}
+
+// ── DeepL client-side translation ─────────────────────────────────────────────
+
+async function translateDeepL(
+  text: string,
+  targetLang: string,
+  apiKey: string,
+): Promise<string> {
+  // Free-tier keys end with ":fx"; pro keys don't
+  const baseUrl = apiKey.endsWith(":fx")
+    ? "https://api-free.deepl.com"
+    : "https://api.deepl.com";
+
+  const res = await fetch(`${baseUrl}/v2/translate`, {
+    method: "POST",
+    headers: {
+      "Authorization": `DeepL-Auth-Key ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text: [text], target_lang: targetLang }),
+  });
+
+  if (!res.ok) throw new Error(`DeepL ${res.status}`);
+  const data = await res.json() as { translations: { text: string }[] };
+  return data.translations[0]?.text ?? "";
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -180,6 +239,16 @@ function sendToTab(tabId: number, msg: ToContentMsg): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+async function loadSettings(): Promise<Settings> {
+  const keys = Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[];
+  const stored = await chrome.storage.sync.get(keys) as Partial<Settings>;
+  return { ...DEFAULT_SETTINGS, ...stored };
 }
 
 async function cropToBase64(dataUrl: string, rect: SelectionRect): Promise<string> {

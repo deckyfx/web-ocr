@@ -1,47 +1,24 @@
+import type {
+  ToContentMsg,
+  FromContentMsg,
+  SelectionCompleteMsg,
+  OcrLocalDoneMsg,
+  ExplainRequestMsg,
+  TokenInfo,
+  JishoEntry,
+  OcrResultMsg,
+  ToEngineMsg,
+  FromEngineMsg,
+} from "./types";
+
 // ── Guard ─────────────────────────────────────────────────────────────────────
 
 type SocrWindow = Window & { __socrLoaded?: boolean };
 const _w = window as SocrWindow;
-
 if (!_w.__socrLoaded) {
   _w.__socrLoaded = true;
   init();
 }
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface TokenInfo {
-  surface: string;
-  dictionary_form: string;
-  reading: string;
-  pos: string;
-  pos_detail: string;
-  conjugation_type: string;
-  conjugation_form: string;
-  is_unknown: boolean;
-}
-
-interface JishoEntry {
-  word: string;
-  reading: string;
-  romaji: string;
-  meanings: string[];
-  jlpt: string | null;
-  is_common: boolean;
-}
-
-interface StartSelectionMsg  { type: "start-selection" }
-interface OcrResultMsg       { type: "ocr-result"; text: string; translation: string | null; elapsed_ms: number }
-interface OcrErrorMsg        { type: "ocr-error"; message: string }
-interface ExplainResultMsg   { type: "explain-result"; tokens: TokenInfo[]; definitions: (JishoEntry | null)[]; mode: "local" | "jisho" }
-interface ExplainErrorMsg    { type: "explain-error"; message: string }
-type InboundMsg = StartSelectionMsg | OcrResultMsg | OcrErrorMsg | ExplainResultMsg | ExplainErrorMsg;
-
-interface SelectionCompleteMsg {
-  type: "selection-complete";
-  rect: { x: number; y: number; w: number; h: number; dpr: number };
-}
-interface ExplainRequestMsg { type: "explain-request"; text: string }
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -57,16 +34,86 @@ let explainMode: "local" | "jisho" = "jisho";
 let lastOcrResult: OcrResultMsg | null = null;
 const EXPLAIN_PAGE_SIZE = 3;
 
+// Engine iframe state
+let engineFrame: HTMLIFrameElement | null = null;
+let engineReady = false;
+let pendingEngineRequest: (() => void) | null = null;
+let activeRequestId: string | null = null;
+let ocrStartTime = 0;
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 function init(): void {
-  chrome.runtime.onMessage.addListener((msg: InboundMsg) => {
-    if      (msg.type === "start-selection") startSelection();
-    else if (msg.type === "ocr-result")      showResult(msg);
-    else if (msg.type === "ocr-error")       showError(msg.message);
-    else if (msg.type === "explain-result")  showExplain(msg.tokens, msg.definitions, msg.mode);
-    else if (msg.type === "explain-error")   showExplainError(msg.message);
+  chrome.runtime.onMessage.addListener((msg: ToContentMsg) => {
+    if      (msg.type === "start-selection")  startSelection();
+    else if (msg.type === "start-ocr-local")  startLocalOcr(msg.image, msg.lang, msg.quality, msg.requestId);
+    else if (msg.type === "ocr-result")       showResult(msg);
+    else if (msg.type === "ocr-error")        showError(msg.message);
+    else if (msg.type === "explain-result")   showExplain(msg.tokens, msg.definitions, msg.mode);
+    else if (msg.type === "explain-error")    showExplainError(msg.message);
   });
+
+  // Engine iframe messages (postMessage from engine.html)
+  window.addEventListener("message", (e: MessageEvent<FromEngineMsg>) => {
+    if (!e.data?.type) return;
+    // Only accept messages from our engine iframe
+    if (engineFrame && e.source !== engineFrame.contentWindow) return;
+
+    const msg = e.data;
+    if (msg.type === "engine-ready") {
+      engineReady = true;
+      pendingEngineRequest?.();
+      pendingEngineRequest = null;
+    } else if (msg.type === "ocr-progress" && msg.requestId === activeRequestId) {
+      updateProgress(msg.status, msg.progress);
+    } else if (msg.type === "ocr-result" && msg.requestId === activeRequestId) {
+      const elapsed = Date.now() - ocrStartTime;
+      activeRequestId = null;
+      const doneMsg: OcrLocalDoneMsg = {
+        type: "ocr-local-done",
+        requestId: msg.requestId,
+        text: msg.text,
+        elapsed_ms: elapsed,
+      };
+      chrome.runtime.sendMessage(doneMsg as unknown as FromContentMsg).catch(console.error);
+      // Panel stays in loading state until background sends back ocr-result (with optional translation)
+      updateProgress("Translating…", 1);
+    } else if (msg.type === "ocr-error" && msg.requestId === activeRequestId) {
+      activeRequestId = null;
+      showError(msg.message);
+    }
+  });
+}
+
+// ── Local OCR flow ────────────────────────────────────────────────────────────
+
+function startLocalOcr(image: string, lang: string, quality: string, requestId: string): void {
+  activeRequestId = requestId;
+  ocrStartTime = Date.now();
+
+  const send = (): void => {
+    const req: ToEngineMsg = { type: "ocr-request", requestId, image, lang, quality };
+    engineFrame!.contentWindow!.postMessage(req, "*");
+  };
+
+  if (engineFrame && engineReady) {
+    send();
+  } else {
+    ensureEngineFrame();
+    pendingEngineRequest = send;
+  }
+}
+
+function ensureEngineFrame(): void {
+  if (engineFrame) return;
+  engineReady = false;
+
+  const frame = document.createElement("iframe");
+  frame.src = chrome.runtime.getURL("engine.html");
+  frame.style.cssText = "display:none!important;position:fixed!important;width:0!important;height:0!important;border:none!important;";
+  frame.setAttribute("aria-hidden", "true");
+  document.documentElement.appendChild(frame);
+  engineFrame = frame;
 }
 
 // ── Selection UI ──────────────────────────────────────────────────────────────
@@ -139,7 +186,6 @@ function startSelection(): void {
     const h = Math.abs(e.clientY - startY);
 
     removeOverlay();
-
     if (w < 8 || h < 8) return;
 
     selectionRect = { x, y, w, h };
@@ -149,7 +195,7 @@ function startSelection(): void {
       type: "selection-complete",
       rect: { x, y, w, h, dpr: window.devicePixelRatio },
     };
-    chrome.runtime.sendMessage(msg).catch(console.error);
+    chrome.runtime.sendMessage(msg as unknown as FromContentMsg).catch(console.error);
   }
 
   const onKeyDown = (e: KeyboardEvent): void => {
@@ -168,22 +214,13 @@ function removeOverlay(): void {
     document.removeEventListener("keydown", keydownListener);
     keydownListener = null;
   }
-  if (overlayEl) {
-    overlayEl.remove();
-    overlayEl = null;
-  }
+  if (overlayEl) { overlayEl.remove(); overlayEl = null; }
   document.getElementById("socr-backdrop")?.remove();
 }
 
 // ── Panel factory ─────────────────────────────────────────────────────────────
 
-/**
- * Create the panel shell: .socr-result-panel > .socr-panel-inner + .socr-resize-handle.
- * The inner div is the only part replaced by content updates; the handles are stable.
- */
-function createPanel(
-  selX: number, selY: number, selW: number, selH: number
-): HTMLElement {
+function createPanel(selX: number, selY: number, selW: number, selH: number): HTMLElement {
   const panel = document.createElement("div");
   panel.className = "socr-result-panel";
   repositionPanel(panel, selX, selY, selW, selH);
@@ -199,11 +236,9 @@ function createPanel(
 
   makeDraggable(panel, inner);
   makeResizable(panel, resizeHandle);
-
   return panel;
 }
 
-/** Replace only the inner content of the panel, leaving drag/resize handles intact. */
 function setInnerContent(panel: HTMLElement, html: string): void {
   const inner = panel.querySelector<HTMLElement>(".socr-panel-inner");
   if (inner) inner.innerHTML = html;
@@ -214,14 +249,30 @@ function setInnerContent(panel: HTMLElement, html: string): void {
 function showLoading(x: number, y: number, w: number, h: number): void {
   removeResultPanel();
   const panel = createPanel(x, y, w, h);
-  setInnerContent(panel, `
-    <div class="socr-loading">
-      <span class="socr-spinner"></span>
-      Recognizing…
-    </div>
-  `);
+  setInnerContent(panel, loadingHtml("Recognizing…", 0));
   document.body.appendChild(panel);
   resultPanelEl = panel;
+}
+
+function updateProgress(status: string, progress: number): void {
+  if (!resultPanelEl) return;
+  setInnerContent(resultPanelEl, loadingHtml(status, progress));
+}
+
+function loadingHtml(label: string, progress: number): string {
+  const pct = Math.round(Math.min(1, progress) * 100);
+  const showBar = pct > 0 && pct < 100;
+  return `
+    <div class="socr-loading">
+      <span class="socr-spinner"></span>
+      <span class="socr-loading-label">${escHtml(label)}</span>
+      ${showBar ? `
+        <div class="socr-progress-track">
+          <div class="socr-progress-bar" style="width:${pct}%"></div>
+        </div>
+      ` : ""}
+    </div>
+  `;
 }
 
 // ── Result panel ──────────────────────────────────────────────────────────────
@@ -230,7 +281,6 @@ function showResult(msg: OcrResultMsg): void {
   if (!resultPanelEl || !selectionRect) return;
   lastOcrResult = msg;
   const { x, y, w, h } = selectionRect;
-
   const hasText = msg.text.trim().length > 0;
 
   setInnerContent(resultPanelEl, `
@@ -289,10 +339,8 @@ function showError(message: string): void {
 
 function showExplain(tokens: TokenInfo[], definitions: (JishoEntry | null)[], mode: "local" | "jisho"): void {
   if (!resultPanelEl) return;
-
   explainMode = mode;
 
-  // Deduplicate by dictionary_form — keep first occurrence with a definition
   const seen = new Set<string>();
   explainItems = tokens
     .map((token, i) => ({ token, def: definitions[i] ?? null }))
@@ -310,7 +358,6 @@ function showExplain(tokens: TokenInfo[], definitions: (JishoEntry | null)[], mo
 
 function renderExplainPage(): void {
   if (!resultPanelEl) return;
-
   const total = explainItems.length;
   const totalPages = Math.ceil(total / EXPLAIN_PAGE_SIZE);
 
@@ -318,7 +365,7 @@ function renderExplainPage(): void {
     setInnerContent(resultPanelEl, `
       <button class="socr-close" aria-label="Close">×</button>
       <div class="socr-text-label">Explain</div>
-      <div class="socr-text">No dictionary entries found for this text.</div>
+      <div class="socr-text">No dictionary entries found.</div>
     `);
     wirePanelButtons(resultPanelEl);
     return;
@@ -328,16 +375,11 @@ function renderExplainPage(): void {
   const pageItems = explainItems.slice(start, start + EXPLAIN_PAGE_SIZE);
 
   const cardsHtml = pageItems.map(({ token, def }) => {
-    // jlpt / is_common only reliable in jisho mode
     const jlptText = explainMode === "jisho" && def.jlpt ? def.jlpt.replace("jlpt-", "").toUpperCase() : "";
     const jlptBadge = jlptText ? `<span class="socr-token-jlpt">${escHtml(jlptText)}</span>` : "";
     const commonBadge = explainMode === "jisho" && def.is_common ? `<span class="socr-token-common">common</span>` : "";
-    const reading = def.romaji
-      ? `<span class="socr-token-reading">${escHtml(def.romaji)}</span>`
-      : "";
-
-    const meaningsHtml = def.meanings
-      .slice(0, 2)
+    const reading = def.romaji ? `<span class="socr-token-reading">${escHtml(def.romaji)}</span>` : "";
+    const meaningsHtml = def.meanings.slice(0, 2)
       .map(m => `<div class="socr-token-meaning">${escHtml(formatMeaning(m, explainMode))}</div>`)
       .join("");
 
@@ -367,7 +409,6 @@ function renderExplainPage(): void {
     <div class="socr-token-list">${cardsHtml}</div>
     ${pagerHtml}
   `);
-
   wirePanelButtons(resultPanelEl);
 }
 
@@ -388,18 +429,11 @@ function showExplainError(message: string): void {
 
 // ── Panel helpers ─────────────────────────────────────────────────────────────
 
-function repositionPanel(
-  panel: HTMLElement,
-  selX: number, selY: number, selW: number, selH: number
-): void {
-  const pw = 360;
-  const ph = 260;
-  const margin = 10;
-
+function repositionPanel(panel: HTMLElement, selX: number, selY: number, selW: number, selH: number): void {
+  const pw = 360, ph = 260, margin = 10;
   let top = selY + selH + margin;
   if (top + ph > window.innerHeight - margin) top = selY - ph - margin;
   if (top < margin) top = margin;
-
   let left = selX + selW / 2 - pw / 2;
   if (left + pw > window.innerWidth - margin) left = window.innerWidth - pw - margin;
   if (left < margin) left = margin;
@@ -436,8 +470,8 @@ function wirePanelButtons(panel: HTMLElement): void {
       if (!text.trim()) return;
       explainBtn.textContent = "Loading…";
       explainBtn.disabled = true;
-      const reqMsg: ExplainRequestMsg = { type: "explain-request", text };
-      chrome.runtime.sendMessage(reqMsg).catch(console.error);
+      const msg: ExplainRequestMsg = { type: "explain-request", text };
+      chrome.runtime.sendMessage(msg as unknown as FromContentMsg).catch(console.error);
     });
   }
 
@@ -452,10 +486,7 @@ function wirePanelButtons(panel: HTMLElement): void {
 }
 
 function removeResultPanel(): void {
-  if (resultPanelEl) {
-    resultPanelEl.remove();
-    resultPanelEl = null;
-  }
+  if (resultPanelEl) { resultPanelEl.remove(); resultPanelEl = null; }
 }
 
 function cleanup(): void {
@@ -465,19 +496,18 @@ function cleanup(): void {
   explainItems = [];
   explainPage = 0;
   lastOcrResult = null;
+  activeRequestId = null;
 }
 
 // ── Drag ──────────────────────────────────────────────────────────────────────
 
 function makeDraggable(panel: HTMLElement, dragTarget: HTMLElement): void {
   let dragging = false;
-  let offsetX = 0;
-  let offsetY = 0;
+  let offsetX = 0, offsetY = 0;
 
   dragTarget.style.cursor = "grab";
 
   dragTarget.addEventListener("mousedown", (e: MouseEvent) => {
-    // Don't start drag from buttons or scrollable content
     const t = e.target as Element;
     if (t.closest("button, .socr-text, .socr-token-list, .socr-pager")) return;
     dragging = true;
@@ -494,10 +524,7 @@ function makeDraggable(panel: HTMLElement, dragTarget: HTMLElement): void {
   });
 
   document.addEventListener("mouseup", () => {
-    if (dragging) {
-      dragging = false;
-      dragTarget.style.cursor = "grab";
-    }
+    if (dragging) { dragging = false; dragTarget.style.cursor = "grab"; }
   });
 }
 
@@ -505,66 +532,42 @@ function makeDraggable(panel: HTMLElement, dragTarget: HTMLElement): void {
 
 function makeResizable(panel: HTMLElement, handle: HTMLElement): void {
   let resizing = false;
-  let startX = 0, startY = 0;
-  let startW = 0, startH = 0;
+  let startX = 0, startY = 0, startW = 0, startH = 0;
 
   handle.addEventListener("mousedown", (e: MouseEvent) => {
     resizing = true;
-    startX = e.clientX;
-    startY = e.clientY;
-    startW = panel.offsetWidth;
-    startH = panel.offsetHeight;
+    startX = e.clientX; startY = e.clientY;
+    startW = panel.offsetWidth; startH = panel.offsetHeight;
     e.preventDefault();
-    e.stopPropagation(); // don't trigger drag
+    e.stopPropagation();
   });
 
   document.addEventListener("mousemove", (e: MouseEvent) => {
     if (!resizing) return;
-    const newW = Math.max(280, startW + (e.clientX - startX));
-    const newH = Math.max(100, startH + (e.clientY - startY));
-    panel.style.setProperty("width", `${newW}px`, "important");
-    panel.style.setProperty("max-height", `${newH}px`, "important");
+    panel.style.setProperty("width",      `${Math.max(280, startW + (e.clientX - startX))}px`, "important");
+    panel.style.setProperty("height",     `${Math.max(100, startH + (e.clientY - startY))}px`, "important");
+    panel.style.setProperty("max-height", "none", "important");
   });
 
-  document.addEventListener("mouseup", () => {
-    resizing = false;
-  });
+  document.addEventListener("mouseup", () => { resizing = false; });
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 
 function escHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function escAttr(s: string): string {
   return escHtml(s).replace(/'/g, "&#39;");
 }
 
-/** Format a dictionary meaning string for display. */
 function formatMeaning(s: string, mode: "local" | "jisho"): string {
-  if (mode === "jisho") {
-    // Jisho meanings are already clean — just cap length
-    return s.length > 100 ? s.slice(0, 97) + "…" : s;
-  }
-
-  // Local (Jitendex) mode: meanings are concatenated blobs — clean up best-effort
-  // 1. Strip leading POS label
+  if (mode === "jisho") return s.length > 100 ? s.slice(0, 97) + "…" : s;
   s = s.replace(/^(noun|verb|adjective|adverb|suffix|prefix|interjection|particle|auxiliary|conjunction|counter|expression|idiom|phrase|proverb|5-dan|intransitive|transitive|archaic|slang|abbr\.?)\s*/i, "").trimStart();
-
-  // 2. Insert space at camelCase boundaries (e.g. "SeeAlso" → "See Also")
   s = s.replace(/([a-z])([A-Z])/g, "$1 $2");
-
-  // 3. Cut before Japanese characters — they mark the start of example sentences
-  const jpIdx = s.search(/[　-鿿豈-﫿぀-ゟ゠-ヿ]/);
+  const jpIdx = s.search(/[　-鿿豈-﫿぀-ゟ゠-ヿ]/);
   if (jpIdx > 3) s = s.slice(0, jpIdx).replace(/[,;]\s*$/, "").trimEnd();
-
-  // 4. Normalize whitespace
   s = s.replace(/\s+/g, " ").trim();
-
   return s.length > 100 ? s.slice(0, 97) + "…" : s;
 }

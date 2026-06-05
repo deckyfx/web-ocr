@@ -7,266 +7,534 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
+    :root {
+      --base:     #1e1e2e;
+      --mantle:   #181825;
+      --crust:    #11111b;
+      --surface0: #313244;
+      --surface1: #45475a;
+      --surface2: #585b70;
+      --overlay0: #6c7086;
+      --text:     #cdd6f4;
+      --subtext0: #a6adc8;
+      --blue:     #89b4fa;
+      --green:    #a6e3a1;
+      --red:      #f38ba8;
+      --peach:    #fab387;
+      --yellow:   #f9e2af;
+    }
+
     body {
       margin: 0;
       padding: 0;
-      background: #1e1e2e;
-      color: #cdd6f4;
+      background: var(--base);
+      color: var(--text);
       font-family: system-ui, -apple-system, sans-serif;
-      font-size: 15px;
+      font-size: 14px;
       min-height: 100vh;
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-      padding: 48px 16px;
     }
 
-    .container {
-      width: 100%;
-      max-width: 520px;
+    /* ── Status flash (fixed top banner) ── */
+    #status {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 9999;
+      padding: 12px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      text-align: center;
+      border-bottom: 1px solid transparent;
+    }
+    #status.status-success {
+      background: #1e3a22;
+      color: var(--green);
+      border-color: #40a02b;
+    }
+    #status.status-error {
+      background: #3a1e1e;
+      color: var(--red);
+      border-color: #d20f39;
+    }
+
+    /* ── Page layout ── */
+    .page {
+      margin: 0 auto;
+      padding: 40px 32px 60px;
     }
 
     .header {
-      margin-bottom: 32px;
-    }
-
-    h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: #cdd6f4;
-      margin: 0 0 6px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--surface0);
     }
 
-    h1 img {
-      width: 28px;
-      height: 28px;
-    }
+    .header img { width: 32px; height: 32px; }
 
-    .subtitle {
-      font-size: 14px;
-      color: #6c7086;
+    .header-text h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0 0 2px;
+    }
+    .header-text p {
+      font-size: 13px;
+      color: var(--overlay0);
       margin: 0;
     }
 
-    .first-install-notice {
-      background: #313244;
-      border: 1px solid #89b4fa;
-      border-radius: 8px;
-      padding: 12px 16px;
+    /* ── Engine switcher tabs ── */
+    .engine-tabs {
+      display: flex;
+      gap: 0;
       margin-bottom: 24px;
-      font-size: 14px;
-      color: #89b4fa;
-      display: none;
+      background: var(--mantle);
+      border: 1px solid var(--surface0);
+      border-radius: 10px;
+      padding: 4px;
     }
 
+    .engine-tab {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--overlay0);
+      border: 1px solid transparent;
+      background: transparent;
+      transition: all 0.15s;
+      user-select: none;
+    }
+
+    .engine-tab:hover { color: var(--text); }
+
+    .engine-tab.active {
+      background: var(--surface0);
+      color: var(--text);
+      border-color: var(--surface1);
+    }
+
+    .engine-tab .tab-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: var(--blue);
+      color: var(--base);
+    }
+
+    /* ── Grid layout ── */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .settings-grid .full { grid-column: 1 / -1; }
+
+    /* ── Card ── */
     .card {
-      background: #181825;
-      border: 1px solid #313244;
+      background: var(--mantle);
+      border: 1px solid var(--surface0);
       border-radius: 12px;
-      padding: 24px;
+      padding: 20px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       margin-bottom: 16px;
     }
 
-    .card h2 {
-      font-size: 14px;
+    .card-title {
+      font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: #6c7086;
-      margin: 0 0 16px;
+      letter-spacing: 0.07em;
+      color: var(--overlay0);
     }
 
-    .field {
-      margin-bottom: 16px;
+    .card-badge {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--surface0);
+      color: var(--subtext0);
     }
+
+    /* ── Fields ── */
+    .field { margin-bottom: 14px; }
     .field:last-child { margin-bottom: 0; }
+    .field-row { display: flex; gap: 10px; }
+    .field-row .field { flex: 1; margin-bottom: 0; }
 
     label {
       display: block;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
-      color: #cdd6f4;
-      margin-bottom: 6px;
+      color: var(--subtext0);
+      margin-bottom: 5px;
     }
 
     input[type="url"],
-    input[type="text"] {
+    input[type="text"],
+    input[type="password"] {
       width: 100%;
-      background: #313244;
-      border: 1px solid #45475a;
+      background: var(--surface0);
+      border: 1px solid var(--surface1);
       border-radius: 7px;
-      color: #cdd6f4;
-      font-size: 14px;
+      color: var(--text);
+      font-size: 13px;
       font-family: inherit;
-      padding: 9px 12px;
+      padding: 8px 11px;
       outline: none;
       transition: border-color 0.15s;
     }
-    input[type="url"]:focus,
-    input[type="text"]:focus {
-      border-color: #89b4fa;
+    input:focus { border-color: var(--blue); }
+    input::placeholder { color: var(--surface2); }
+
+    .hint {
+      font-size: 11px;
+      color: var(--overlay0);
+      margin-top: 4px;
+      line-height: 1.5;
     }
 
-    .field-hint {
-      font-size: 12px;
-      color: #6c7086;
-      margin-top: 5px;
-    }
+    code { color: var(--blue); font-size: 11px; }
 
     select {
       width: 100%;
-      background: #313244;
-      border: 1px solid #45475a;
+      background: var(--surface0);
+      border: 1px solid var(--surface1);
       border-radius: 7px;
-      color: #cdd6f4;
-      font-size: 14px;
+      color: var(--text);
+      font-size: 13px;
       font-family: inherit;
-      padding: 9px 12px;
+      padding: 8px 11px;
       outline: none;
       cursor: pointer;
       transition: border-color 0.15s;
       appearance: none;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236c7086' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
-      background-position: right 12px center;
-      padding-right: 32px;
+      background-position: right 11px center;
+      padding-right: 30px;
     }
-    select:focus { border-color: #89b4fa; }
+    select:focus { border-color: var(--blue); }
 
-    .actions {
+    /* ── Divider ── */
+    hr {
+      border: none;
+      border-top: 1px solid var(--surface0);
+      margin: 16px 0;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 7px;
+      border: 1px solid var(--surface1);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+      white-space: nowrap;
+    }
+
+    .btn-ghost {
+      background: var(--surface0);
+      color: var(--text);
+    }
+    .btn-ghost:hover { background: var(--surface1); }
+    .btn-ghost:disabled { opacity: 0.45; cursor: default; }
+
+    .btn-primary {
+      background: var(--blue);
+      color: var(--base);
+      border-color: var(--blue);
+    }
+    .btn-primary:hover { opacity: 0.88; }
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      background: var(--surface1);
+      border-color: var(--surface1);
+      color: var(--overlay0);
+    }
+
+    /* ── Inline status (next to buttons) ── */
+    .inline-status {
+      font-size: 12px;
+      color: var(--overlay0);
+      margin-top: 6px;
+      min-height: 16px;
+    }
+    .inline-ok  { color: var(--green); }
+    .inline-err { color: var(--red); }
+
+    /* ── Footer bar ── */
+    .footer {
       display: flex;
+      align-items: center;
+      justify-content: flex-end;
       gap: 10px;
       margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid var(--surface0);
     }
 
-    button {
-      font-family: inherit;
-      font-size: 14px;
-      font-weight: 500;
-      padding: 9px 18px;
-      border-radius: 7px;
-      border: 1px solid #45475a;
-      cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
-    }
-
-    #testBtn {
-      background: #313244;
-      color: #cdd6f4;
-    }
-    #testBtn:hover { background: #45475a; }
-    #testBtn:disabled { opacity: 0.5; cursor: default; }
-
-    #saveBtn {
-      background: #89b4fa;
-      color: #1e1e2e;
-      border-color: #89b4fa;
-      margin-left: auto;
-    }
-    #saveBtn:hover { background: #b4d0ff; border-color: #b4d0ff; }
-
-    #status {
-      display: none;
-      margin-top: 14px;
-      font-size: 13px;
-      padding: 10px 14px;
-      border-radius: 7px;
-    }
-    #status.status-success {
-      background: #1e3a22;
-      color: #a6e3a1;
-      border: 1px solid #40a02b;
-    }
-    #status.status-error {
-      background: #3a1e1e;
-      color: #f38ba8;
-      border: 1px solid #d20f39;
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .settings-grid { grid-template-columns: 1fr; }
+      .settings-grid .full { grid-column: 1; }
+      .page { padding: 24px 16px 48px; }
     }
   </style>
 </head>
 <body>
-  <div class="container">
+  <!-- Status flash banner (fixed top) -->
+  <div id="status"></div>
+
+  <div class="page">
+    <!-- Header -->
     <div class="header">
-      <h1>
-        <img src="icons/48.png" alt="" />
-        Selfhost OCR
-      </h1>
-      <p class="subtitle">Connect to your self-hosted OCR server</p>
-    </div>
-
-    <div class="first-install-notice" id="firstInstallNotice">
-      👋 Welcome! Please configure your server URL below before using the extension.
-    </div>
-
-    <div class="card">
-      <h2>Server</h2>
-
-      <div class="field">
-        <label for="serverUrl">Server URL</label>
-        <input
-          type="url"
-          id="serverUrl"
-          placeholder="http://localhost:3579"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <p class="field-hint">
-          URL of your running OCR server (e.g. <code style="color:#89b4fa">http://localhost:3579</code>).
-        </p>
+      <img src="icons/48.png" alt="" />
+      <div class="header-text">
+        <h1>Selfhost OCR</h1>
+        <p>Configure your OCR engine and translation settings</p>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Translation</h2>
+    <!-- Engine tabs -->
+    <div class="engine-tabs">
+      <button class="engine-tab" id="tab-tesseract" data-engine="tesseract">
+        🧩 Tesseract.js
+        <span class="tab-badge">in-browser</span>
+      </button>
+      <button class="engine-tab" id="tab-server" data-engine="server">
+        🖥 Remote Server
+        <span class="tab-badge">self-hosted</span>
+      </button>
+    </div>
 
-      <div class="field">
-        <label for="translationEngine">Engine</label>
-        <select id="translationEngine">
-          <option value="none">Disable translation</option>
-          <option value="local">Use embedded model (server)</option>
-          <option value="deepl">DeepL — enter your own key</option>
-        </select>
-        <p class="field-hint" id="engineHint-none">OCR text only, no translation.</p>
-        <p class="field-hint" id="engineHint-local" style="display:none">
-          Uses the OPUS-MT model loaded on your server. No external requests.
-        </p>
-        <p class="field-hint" id="engineHint-deepl" style="display:none">
-          Calls the DeepL API directly from your browser using your own key.
-        </p>
+    <!-- ── Tesseract section ── -->
+    <div id="tesseractSection">
+      <div class="settings-grid">
+
+        <!-- Tesseract language + quality -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Recognition</span>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="tesseractLang">Language</label>
+              <select id="tesseractLang">
+                <option value="jpn">Japanese (jpn)</option>
+                <option value="jpn_vert">Japanese vertical (jpn_vert)</option>
+                <option value="eng">English (eng)</option>
+                <option value="chi_sim">Chinese Simplified (chi_sim)</option>
+                <option value="chi_tra">Chinese Traditional (chi_tra)</option>
+                <option value="kor">Korean (kor)</option>
+                <option value="ara">Arabic (ara)</option>
+                <option value="hin">Hindi (hin)</option>
+                <option value="tha">Thai (tha)</option>
+                <option value="vie">Vietnamese (vie)</option>
+                <option value="rus">Russian (rus)</option>
+                <option value="deu">German (deu)</option>
+                <option value="fra">French (fra)</option>
+                <option value="spa">Spanish (spa)</option>
+                <option value="ita">Italian (ita)</option>
+                <option value="por">Portuguese (por)</option>
+                <option value="nld">Dutch (nld)</option>
+                <option value="pol">Polish (pol)</option>
+                <option value="tur">Turkish (tur)</option>
+                <option value="swe">Swedish (swe)</option>
+                <option value="nor">Norwegian (nor)</option>
+                <option value="dan">Danish (dan)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="tesseractQuality">Model quality</label>
+              <select id="tesseractQuality">
+                <option value="4.0.0">Standard — faster</option>
+                <option value="4.0.0_best">Best — more accurate</option>
+              </select>
+              <p class="hint">Best recommended for CJK scripts</p>
+            </div>
+          </div>
+          <div class="field">
+            <button class="btn btn-ghost" id="checkLangBtn">Check Language</button>
+            <div class="inline-status" id="checkLangStatus"></div>
+            <p class="hint" style="margin-top:6px">Verifies the language data is available for download. Required before saving.</p>
+          </div>
+        </div>
+
+        <!-- Client-side DeepL for Tesseract -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Translation</span>
+            <span class="card-badge">optional</span>
+          </div>
+          <div class="field">
+            <label for="clientTranslation">Engine</label>
+            <select id="clientTranslation">
+              <option value="none">Disabled</option>
+              <option value="deepl">DeepL — my own API key</option>
+            </select>
+          </div>
+          <div id="deeplFields" style="display:none">
+            <hr />
+            <div class="field">
+              <label for="deeplApiKey">DeepL API Key</label>
+              <input type="password" id="deeplApiKey" placeholder="xxxx…:fx" autocomplete="off" />
+              <p class="hint">Free keys end with <code>:fx</code>. Stored locally in your browser.</p>
+            </div>
+            <div class="field">
+              <label for="deeplTargetLang">Target language</label>
+              <select id="deeplTargetLang">
+                <option value="EN-US">English (US)</option>
+                <option value="EN-GB">English (UK)</option>
+                <option value="ZH">Chinese (Simplified)</option>
+                <option value="ZH-HANT">Chinese (Traditional)</option>
+                <option value="JA">Japanese</option>
+                <option value="KO">Korean</option>
+                <option value="DE">German</option>
+                <option value="FR">French</option>
+                <option value="ES">Spanish</option>
+                <option value="PT-BR">Portuguese (Brazil)</option>
+                <option value="PT-PT">Portuguese (Portugal)</option>
+                <option value="IT">Italian</option>
+                <option value="NL">Dutch</option>
+                <option value="PL">Polish</option>
+                <option value="RU">Russian</option>
+                <option value="TR">Turkish</option>
+                <option value="ID">Indonesian</option>
+                <option value="SV">Swedish</option>
+                <option value="DA">Danish</option>
+                <option value="FI">Finnish</option>
+                <option value="CS">Czech</option>
+                <option value="RO">Romanian</option>
+                <option value="UK">Ukrainian</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
       </div>
-
     </div>
 
-    <div class="card">
-      <h2>Dictionary (Explain feature)</h2>
+    <!-- ── Server section ── -->
+    <div id="serverSection" style="display:none">
+      <div class="settings-grid">
 
-      <div class="field">
-        <label for="dictMode">Lookup backend</label>
-        <select id="dictMode">
-          <option value="jisho">Jisho API — clean meanings, JLPT info (requires internet)</option>
-          <option value="local">Local / Jitendex — fast, offline (server dictionary)</option>
-        </select>
-        <p class="field-hint" id="dictHint-jisho">
-          Fetches meanings from jisho.org. Provides clean definitions and reliable JLPT levels.
-          Each Explain request makes one API call per unique word.
-        </p>
-        <p class="field-hint" id="dictHint-local" style="display:none">
-          Uses the Jitendex dictionary loaded on your server. No internet required.
-          JLPT and "common word" info are not available in this mode.
-        </p>
+        <!-- Server URL + Test + Server translation -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Remote OCR Server</span>
+          </div>
+          <div class="field">
+            <label for="serverUrl">Server URL</label>
+            <input type="url" id="serverUrl" placeholder="http://localhost:3579" autocomplete="off" spellcheck="false" />
+            <p class="hint">e.g. <code>http://localhost:3579</code></p>
+          </div>
+          <div class="field">
+            <button class="btn btn-ghost" id="testBtn">Test Connection</button>
+            <div class="inline-status" id="testBtnStatus"></div>
+            <p class="hint" style="margin-top:6px">Connection must succeed before saving.</p>
+          </div>
+          <hr />
+          <div class="field">
+            <label for="serverTranslation">Server-side Translation</label>
+            <select id="serverTranslation">
+              <option value="none">Disabled</option>
+              <option value="local">Embedded model (OPUS-MT)</option>
+              <option value="deepl">DeepL via server key</option>
+            </select>
+            <p class="hint" id="serverHint-none">OCR text only — no translation.</p>
+            <p class="hint" id="serverHint-local" style="display:none">Uses OPUS-MT on your server. No external requests.</p>
+            <p class="hint" id="serverHint-deepl" style="display:none">Server calls DeepL using its configured API key.</p>
+          </div>
+        </div>
+
+        <!-- Dictionary (Explain) -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Dictionary</span>
+            <span class="card-badge">Explain feature</span>
+          </div>
+          <div class="field">
+            <label for="dictMode">Lookup backend</label>
+            <select id="dictMode">
+              <option value="jisho">Jisho API (internet)</option>
+              <option value="local">Jitendex — local / offline</option>
+            </select>
+            <p class="hint" id="dictHint-jisho">Fetches from jisho.org. JLPT levels and common-word badges included.</p>
+            <p class="hint" id="dictHint-local" style="display:none">Uses Jitendex on your server. No internet required. JLPT info unavailable.</p>
+          </div>
+          <hr />
+          <!-- Client DeepL also available in server mode -->
+          <div class="field">
+            <label for="clientTranslationServer">Client-side Translation</label>
+            <select id="clientTranslationServer">
+              <option value="none">Disabled</option>
+              <option value="deepl">DeepL — my own API key</option>
+            </select>
+            <p class="hint">Overrides server translation. Runs directly from your browser.</p>
+          </div>
+          <div id="deeplFieldsServer" style="display:none">
+            <hr />
+            <div class="field">
+              <label for="deeplApiKeyServer">DeepL API Key</label>
+              <input type="password" id="deeplApiKeyServer" placeholder="xxxx…:fx" autocomplete="off" />
+              <p class="hint">Free keys end with <code>:fx</code>.</p>
+            </div>
+            <div class="field">
+              <label for="deeplTargetLangServer">Target language</label>
+              <select id="deeplTargetLangServer">
+                <option value="EN-US">English (US)</option>
+                <option value="EN-GB">English (UK)</option>
+                <option value="ZH">Chinese (Simplified)</option>
+                <option value="ZH-HANT">Chinese (Traditional)</option>
+                <option value="JA">Japanese</option>
+                <option value="KO">Korean</option>
+                <option value="DE">German</option>
+                <option value="FR">French</option>
+                <option value="ES">Spanish</option>
+                <option value="PT-BR">Portuguese (Brazil)</option>
+                <option value="PT-PT">Portuguese (Portugal)</option>
+                <option value="IT">Italian</option>
+                <option value="NL">Dutch</option>
+                <option value="PL">Polish</option>
+                <option value="RU">Russian</option>
+                <option value="TR">Turkish</option>
+                <option value="ID">Indonesian</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
-    <div class="actions">
-      <button id="testBtn">Test Connection</button>
-      <button id="saveBtn">Save Settings</button>
+    <!-- Footer -->
+    <div class="footer">
+      <button class="btn btn-primary" id="saveBtn" disabled>Save Settings</button>
     </div>
-
-    <div id="status"></div>
   </div>
+
   <script src="options.js"></script>
 </body>
 </html>

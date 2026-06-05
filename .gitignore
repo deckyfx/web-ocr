@@ -23,3 +23,7 @@ extension/selfhost-ocr.tar.gz
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# ── etc ────────────────────────────────────────────────────────────────────────
+server/server
+mighty-wiggling-cascade.md
