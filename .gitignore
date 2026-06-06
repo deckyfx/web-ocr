@@ -3,6 +3,7 @@ desktop-csharp/bin/
 desktop-csharp/obj/
 server-csharp/bin/
 server-csharp/obj/
+desktop-csharp/publish/
 *.user
 
 # ── Rust ──────────────────────────────────────────────────────────────────────

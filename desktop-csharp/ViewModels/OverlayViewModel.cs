@@ -23,12 +23,15 @@ public class OverlayViewModel : INotifyPropertyChanged
 
     private double _canvasWidth  = 1920;
     private double _canvasHeight = 1080;
+    private double _screenScale  = 1.0;
     private Point  _selectionStart;
     private Point  _selectionEnd;
     private bool   _isSelecting;
 
     public double CanvasWidth  { get => _canvasWidth;  set => SetProperty(ref _canvasWidth,  value); }
     public double CanvasHeight { get => _canvasHeight; set => SetProperty(ref _canvasHeight, value); }
+    /// <summary>Physical pixels per DIP (e.g. 1.5 at 150 % DPI). Used for dimension label.</summary>
+    public double ScreenScale  { get => _screenScale;  set => SetProperty(ref _screenScale,  value); }
     public bool   IsSelecting  { get => _isSelecting;  set => SetProperty(ref _isSelecting,  value); }
 
     public Point SelectionStart
@@ -57,7 +60,7 @@ public class OverlayViewModel : INotifyPropertyChanged
 
     public string DimensionLabel =>
         IsSelecting && SelectionRect.Width > 4 && SelectionRect.Height > 4
-            ? $"{(int)SelectionRect.Width}×{(int)SelectionRect.Height}"
+            ? $"{(int)(SelectionRect.Width * _screenScale)}×{(int)(SelectionRect.Height * _screenScale)}"
             : "";
 
     public bool HasValidSelection => SelectionRect.Width > 4 && SelectionRect.Height > 4;

@@ -16,11 +16,11 @@
             Height="{Binding CanvasHeight}"
             ClipToBounds="True">
 
-        <!-- Screenshot background -->
+        <!-- Screenshot background — Stretch=Fill scales physical-pixel bitmap to DIP canvas -->
         <Image x:Name="ScreenshotImage"
                Width="{Binding CanvasWidth}"
                Height="{Binding CanvasHeight}"
-               Stretch="None" />
+               Stretch="Fill" />
 
         <!-- Full-screen dim overlay -->
         <Rectangle Width="{Binding CanvasWidth}"

@@ -15,4 +15,15 @@ public record AppSettings
 
     public string TranslateEngine { get; init; } = "none";
     public string DictionaryMode { get; init; } = "local";
+    public int ScanIntervalSeconds { get; init; } = 3;
+    public bool ShowOverlay { get; init; } = false;
+
+    /// <summary>"server" (default) or "tesseract" for embedded local OCR.</summary>
+    public string OcrMode { get; init; } = "server";
+
+    /// <summary>Tesseract language code, e.g. "jpn", "eng".</summary>
+    public string TesseractLang { get; init; } = "jpn";
+
+    /// <summary>"fast" (smaller download) or "best" (higher accuracy).</summary>
+    public string TesseractQuality { get; init; } = "fast";
 }

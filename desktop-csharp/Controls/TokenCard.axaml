@@ -16,9 +16,9 @@
 
             <!-- Surface form -->
             <TextBlock Text="{Binding Token.Surface}"
-                       FontSize="20"
-                       FontWeight="Medium"
-                       Foreground="{DynamicResource TextBrush}"
+                       FontSize="17"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource BlueBrush}"
                        TextWrapping="Wrap" />
 
             <!-- Reading (hiragana) -->

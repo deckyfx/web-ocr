@@ -14,10 +14,11 @@ namespace WebOcrDesktop;
 
 public partial class App : Application
 {
-    private MainViewModel?  _vm;
-    private MainWindow?     _mainWindow;
-    private OverlayWindow?  _overlay;
-    private TrayIcon?       _trayIcon;
+    private MainViewModel?            _vm;
+    private MainWindow?               _mainWindow;
+    private OverlayWindow?            _selectionOverlay;
+    private TranslationOverlayWindow? _translationOverlay;
+    private TrayIcon?                 _trayIcon;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -29,26 +30,37 @@ public partial class App : Application
             return;
         }
 
-        _vm         = new MainViewModel();
-        _mainWindow = new MainWindow { DataContext = _vm };
-        _overlay    = new OverlayWindow();
+        _vm               = new MainViewModel();
+        _mainWindow       = new MainWindow { DataContext = _vm };
+        _selectionOverlay = new OverlayWindow();
 
-        // ── Event wiring ────────────────────────────────────────────────
-        _vm.CaptureRequested  += OnCaptureRequested;
+        // ── Capture flow event wiring ────────────────────────────────────
+        _vm.CaptureRequested   += OnCaptureRequested;
         _vm.SelectionRequested += OnSelectionRequested;
-        _vm.ResultReady       += OnResultReady;
+        _vm.ResultReady        += OnResultReady;
 
-        _overlay.RegionSelected += async (x, y, w, h) =>
+        _vm.OverlayUpdateRequested += (text) =>
+            Dispatcher.UIThread.Post(() => HandleTranslationOverlay(text));
+
+        _selectionOverlay.RegionSelected += async (x, y, w, h) =>
             await _vm.OnRegionSelectedAsync(x, y, w, h);
 
-        _overlay.Cancelled += () =>
+        _selectionOverlay.Cancelled += () =>
         {
             _vm.CancelCapture();
-            Dispatcher.UIThread.Post(() => _mainWindow.Show());
+            Dispatcher.UIThread.Post(() =>
+            {
+                _mainWindow.Show();
+                _mainWindow.Activate();
+            });
         };
 
         // ── Tray icon ────────────────────────────────────────────────────
         SetupTrayIcon(desktop);
+
+        // ── Show main window on startup — centered ───────────────────────
+        _mainWindow.Show();
+        _mainWindow.PositionCentered();
 
         // Do NOT set desktop.MainWindow — we manage lifetime ourselves.
         base.OnFrameworkInitializationCompleted();
@@ -84,7 +96,7 @@ public partial class App : Application
         Dispatcher.UIThread.Post(() =>
         {
             if (_vm?.ScreenshotBitmap is { } bmp)
-                _overlay?.ShowWithScreenshot(bmp);
+                _selectionOverlay?.ShowWithScreenshot(bmp);
         });
     }
 
@@ -93,10 +105,30 @@ public partial class App : Application
         Dispatcher.UIThread.Post(() =>
         {
             if (_mainWindow is null) return;
-            _mainWindow.Show();              // Show first so SizeToContent runs
-            _mainWindow.PositionNearTray();  // Then position with known Height
+            _mainWindow.Show();
+            _mainWindow.PositionNearTray();
             _mainWindow.Activate();
         });
+    }
+
+    // ── Translation overlay ───────────────────────────────────────────────────
+
+    private void HandleTranslationOverlay(string? text)
+    {
+        if (text is null || !(_vm?.Settings.ShowOverlay == true) || _vm.LastRegion is null)
+        {
+            _translationOverlay?.Hide();
+            return;
+        }
+
+        if (_translationOverlay is null)
+            _translationOverlay = new TranslationOverlayWindow();
+
+        _translationOverlay.SetRegion(_vm.LastRegion.Value);
+        _translationOverlay.SetTranslation(text);
+
+        if (!_translationOverlay.IsVisible)
+            _translationOverlay.Show();
     }
 
     // ── Tray icon setup ───────────────────────────────────────────────────────
@@ -124,7 +156,6 @@ public partial class App : Application
         settingsItem.Click += (_, _) => Dispatcher.UIThread.Post(() =>
         {
             if (_vm is null || _mainWindow is null) return;
-            // ShowDialog requires a visible owner window
             _mainWindow.Show();
             _mainWindow.Activate();
             var win = new SettingsWindow();
@@ -139,6 +170,7 @@ public partial class App : Application
         var quitItem = new NativeMenuItem("Quit");
         quitItem.Click += (_, _) =>
         {
+            _translationOverlay?.Close();
             _trayIcon?.Dispose();
             _vm?.Dispose();
             desktop.Shutdown();

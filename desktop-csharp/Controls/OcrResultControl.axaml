@@ -4,27 +4,30 @@
              x:Class="WebOcrDesktop.Controls.OcrResultControl"
              x:DataType="vm:MainViewModel">
 
-    <StackPanel Spacing="8" Margin="12,8">
+    <StackPanel Spacing="10" Margin="12,10">
 
-        <!-- OCR text row -->
+        <!-- ── OCR text section ──────────────────────────────────────────── -->
         <Grid ColumnDefinitions="*,Auto">
             <TextBlock Grid.Column="0"
                        Text="OCR RESULT"
-                       FontSize="11"
+                       FontSize="10"
                        FontWeight="SemiBold"
-                       Foreground="{DynamicResource Subtext0Brush}"
+                       Foreground="{DynamicResource Overlay0Brush}"
                        VerticalAlignment="Center"
-                       LetterSpacing="1" />
-
+                       LetterSpacing="1.2" />
             <Button Grid.Column="1"
                     Content="Copy"
                     Command="{Binding CopyOcrTextCommand}"
                     FontSize="11"
                     Padding="8,3"
-                    Classes="ghost" />
+                    Background="{DynamicResource Surface0Brush}"
+                    Foreground="{DynamicResource BlueBrush}"
+                    BorderBrush="{DynamicResource Surface1Brush}"
+                    BorderThickness="1"
+                    CornerRadius="4" />
         </Grid>
 
-        <!-- OCR text box (read-only, selectable) -->
+        <!-- OCR text box -->
         <TextBox Text="{Binding OcrText}"
                  IsReadOnly="True"
                  AcceptsReturn="True"
@@ -32,29 +35,38 @@
                  MaxHeight="120"
                  FontSize="15"
                  FontFamily="Noto Sans CJK JP,Yu Gothic,Meiryo,sans-serif"
-                 Background="{DynamicResource MantleBrush}"
+                 Background="{DynamicResource Surface0Brush}"
                  BorderBrush="{DynamicResource Surface1Brush}"
                  Foreground="{DynamicResource TextBrush}"
                  Padding="8,6"
                  CornerRadius="6" />
 
-        <!-- Translation -->
+        <!-- ── Translation section ───────────────────────────────────────── -->
         <StackPanel IsVisible="{Binding Translation,
-                      Converter={x:Static vm:StringNotEmptyConverter.Instance}}">
+                      Converter={x:Static vm:StringNotEmptyConverter.Instance}}"
+                    Spacing="6">
+
             <TextBlock Text="TRANSLATION"
-                       FontSize="11"
+                       FontSize="10"
                        FontWeight="SemiBold"
-                       Foreground="{DynamicResource Subtext0Brush}"
-                       LetterSpacing="1"
-                       Margin="0,0,0,4" />
-            <TextBlock Text="{Binding Translation}"
-                       FontSize="13"
-                       Foreground="{DynamicResource Subtext1Brush}"
-                       TextWrapping="Wrap" />
+                       Foreground="{DynamicResource Overlay0Brush}"
+                       LetterSpacing="1.2" />
+
+            <Border Background="{DynamicResource Surface0Brush}"
+                    BorderBrush="{DynamicResource Surface1Brush}"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="8,6">
+                <TextBlock Text="{Binding Translation}"
+                           FontSize="13"
+                           Foreground="{DynamicResource Subtext1Brush}"
+                           TextWrapping="Wrap" />
+            </Border>
         </StackPanel>
 
-        <!-- Elapsed time -->
+        <!-- ── Elapsed time ──────────────────────────────────────────────── -->
         <TextBlock FontSize="11"
+                   HorizontalAlignment="Right"
                    Foreground="{DynamicResource Overlay0Brush}"
                    IsVisible="{Binding ElapsedMs, Converter={x:Static vm:NonZeroConverter.Instance}}">
             <Run Text="{Binding ElapsedMs}" /><Run Text=" ms" />

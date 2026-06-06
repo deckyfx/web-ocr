@@ -1,0 +1,58 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="WebOcrDesktop.Views.TranslationOverlayWindow"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        WindowDecorations="None"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="Manual"
+        CanResize="True"
+        MinWidth="160"
+        MinHeight="60"
+        Width="300"
+        Height="100">
+
+    <Border Background="#CC1E1E2E"
+            CornerRadius="6">
+        <Grid RowDefinitions="Auto,*">
+
+            <!-- Drag handle / title bar -->
+            <Grid Grid.Row="0"
+                  ColumnDefinitions="*,Auto"
+                  PointerPressed="OnHeaderDrag">
+                <TextBlock Grid.Column="0"
+                           Text="Translation"
+                           FontSize="10"
+                           Foreground="#66CDD6F4"
+                           Margin="8,5,4,5"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="1"
+                        Content="✕"
+                        Click="OnCloseClick"
+                        Background="Transparent"
+                        Foreground="#66CDD6F4"
+                        BorderThickness="0"
+                        FontSize="11"
+                        Padding="8,4"
+                        CornerRadius="0"
+                        VerticalAlignment="Center"
+                        Cursor="Hand" />
+            </Grid>
+
+            <!-- Translation text -->
+            <ScrollViewer Grid.Row="1"
+                          Margin="8,2,8,8"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <TextBlock x:Name="TranslationText"
+                           Text=""
+                           FontSize="14"
+                           Foreground="#CDD6F4"
+                           TextWrapping="Wrap"
+                           LineHeight="22" />
+            </ScrollViewer>
+
+        </Grid>
+    </Border>
+</Window>

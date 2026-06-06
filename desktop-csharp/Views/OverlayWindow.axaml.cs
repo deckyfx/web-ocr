@@ -11,7 +11,8 @@ namespace WebOcrDesktop.Views;
 public partial class OverlayWindow : Window
 {
     private OverlayViewModel? _vm;
-    private bool _dragging;
+    private bool   _dragging;
+    private double _screenScale = 1.0; // physical pixels per DIP, used for crop coordinate conversion
 
     public event Action<int, int, int, int>? RegionSelected;
     public event Action? Cancelled;
@@ -23,27 +24,23 @@ public partial class OverlayWindow : Window
 
     public void ShowWithScreenshot(Bitmap screenshot)
     {
-        _vm = new OverlayViewModel
-        {
-            CanvasWidth  = screenshot.PixelSize.Width,
-            CanvasHeight = screenshot.PixelSize.Height,
-        };
+        // screen.Bounds is in physical pixels; Window.Width/Height are in DIPs.
+        // Dividing by Scaling converts physical → DIP so the window fits exactly.
+        var screen   = Screens.Primary;
+        _screenScale = screen?.Scaling ?? 1.0;
+        double dipW  = (screen?.Bounds.Width  ?? screenshot.PixelSize.Width)  / _screenScale;
+        double dipH  = (screen?.Bounds.Height ?? screenshot.PixelSize.Height) / _screenScale;
+
+        _vm = new OverlayViewModel { CanvasWidth = dipW, CanvasHeight = dipH, ScreenScale = _screenScale };
         DataContext = _vm;
-
-        // Set screenshot as image source
         ScreenshotImage.Source = screenshot;
-
         _vm.Reset();
 
-        // Position and size window to fill primary screen
-        var screen = Screens.Primary;
         if (screen is not null)
-        {
             Position = new PixelPoint(screen.Bounds.X, screen.Bounds.Y);
-            Width    = screen.Bounds.Width;
-            Height   = screen.Bounds.Height;
-        }
 
+        Width  = dipW;
+        Height = dipH;
         WindowState = WindowState.FullScreen;
         Show();
         Activate();
@@ -80,14 +77,12 @@ public partial class OverlayWindow : Window
         {
             var r = _vm.SelectionRect;
 
-            // Scale display coords → actual screenshot pixel coords
-            double scaleX = (_vm.CanvasWidth)  / Width;
-            double scaleY = (_vm.CanvasHeight) / Height;
-
-            int x = (int)(r.X      * scaleX);
-            int y = (int)(r.Y      * scaleY);
-            int w = (int)(r.Width  * scaleX);
-            int h = (int)(r.Height * scaleY);
+            // Pointer events are in DIPs; crop coordinates must be physical pixels.
+            // _screenScale = physical pixels per DIP (e.g. 1.5 at 150 % display scaling).
+            int x = (int)(r.X      * _screenScale);
+            int y = (int)(r.Y      * _screenScale);
+            int w = (int)(r.Width  * _screenScale);
+            int h = (int)(r.Height * _screenScale);
 
             Hide();
             RegionSelected?.Invoke(x, y, w, h);

@@ -1,4 +1,7 @@
 using System;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using WebOcrDesktop.Models;
@@ -8,8 +11,10 @@ namespace WebOcrDesktop.Views;
 
 public partial class SettingsWindow : Window
 {
-    public static readonly string[] TranslateEngines = ["none", "local", "deepl"];
-    public static readonly string[] DictionaryModes  = ["local", "jisho"];
+    public static readonly string[] TranslateEngines  = ["none", "local", "deepl"];
+    public static readonly string[] DictionaryModes   = ["local", "jisho"];
+    public static readonly string[] TesseractLangs    = ["jpn", "jpn_vert", "eng", "chi_sim", "chi_tra", "kor"];
+    public static readonly string[] TesseractQualities = ["fast", "best"];
 
     public event Action<AppSettings>? SettingsSaved;
 
@@ -21,6 +26,83 @@ public partial class SettingsWindow : Window
     public void LoadSettings(AppSettings settings)
     {
         DataContext = new SettingsViewModel(settings);
+        UpdateTabStyles();
+    }
+
+    private void OnServerTabClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel vm) return;
+        vm.OcrMode = "server";
+        UpdateTabStyles();
+    }
+
+    private void OnTesseractTabClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel vm) return;
+        vm.OcrMode = "tesseract";
+        UpdateTabStyles();
+    }
+
+    private void UpdateTabStyles()
+    {
+        if (DataContext is not SettingsViewModel vm) return;
+        var serverBtn = this.FindControl<Button>("ServerTabBtn");
+        var tessBtn   = this.FindControl<Button>("TesseractTabBtn");
+        if (serverBtn is null || tessBtn is null) return;
+
+        if (vm.IsServerMode)
+        {
+            serverBtn.Classes.Set("tab-active", true);  serverBtn.Classes.Set("tab", false);
+            tessBtn.Classes.Set("tab-active", false);   tessBtn.Classes.Set("tab", true);
+        }
+        else
+        {
+            serverBtn.Classes.Set("tab-active", false); serverBtn.Classes.Set("tab", true);
+            tessBtn.Classes.Set("tab-active", true);    tessBtn.Classes.Set("tab", false);
+        }
+    }
+
+    private async void OnTestConnectionClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel vm) return;
+
+        vm.IsTestingConnection = true;
+        vm.ConnectionStatus    = "";
+
+        try
+        {
+            var url = vm.ServerUrl.Trim();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var baseUri))
+            {
+                vm.ConnectionStatus = "✗ Invalid URL";
+                return;
+            }
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            if (!string.IsNullOrWhiteSpace(vm.ApiKey))
+                http.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", vm.ApiKey.Trim());
+
+            var resp = await http.GetFromJsonAsync<HealthResponse>(new Uri(baseUri, "/health"));
+            vm.ConnectionStatus = resp is not null
+                ? $"✓ Connected — server v{resp.Version}"
+                : "✓ OK";
+        }
+        catch (TaskCanceledException)
+        {
+            vm.ConnectionStatus = "✗ Timed out (5 s)";
+        }
+        catch (HttpRequestException ex)
+        {
+            vm.ConnectionStatus = $"✗ {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            vm.ConnectionStatus = $"✗ {ex.GetType().Name}: {ex.Message}";
+        }
+        finally
+        {
+            vm.IsTestingConnection = false;
+        }
     }
 
     private async void OnSaveClick(object? sender, RoutedEventArgs e)
@@ -33,7 +115,6 @@ public partial class SettingsWindow : Window
         }
         catch (ArgumentException ex)
         {
-            // Surface URL validation errors instead of crashing.
             var dlg = new Window
             {
                 Title         = "Invalid Settings",

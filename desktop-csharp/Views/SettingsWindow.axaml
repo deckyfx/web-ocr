@@ -5,97 +5,340 @@
         x:Class="WebOcrDesktop.Views.SettingsWindow"
         x:DataType="vm:SettingsViewModel"
         Title="Settings — Web OCR"
-        Width="420"
+        Width="660"
+        MinWidth="480"
         SizeToContent="Height"
+        MaxHeight="760"
         Background="{DynamicResource BaseBrush}"
         CanResize="False"
         WindowStartupLocation="CenterOwner">
 
-    <StackPanel Margin="20" Spacing="16">
+    <Window.Styles>
+        <Style Selector="TextBlock.label">
+            <Setter Property="FontSize"   Value="12" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="Foreground" Value="{DynamicResource Subtext0Brush}" />
+            <Setter Property="Margin"     Value="0,0,0,5" />
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="FontSize"   Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource Overlay0Brush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin"     Value="0,4,0,0" />
+        </Style>
+        <Style Selector="TextBlock.section">
+            <Setter Property="FontSize"   Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource Overlay0Brush}" />
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Background"   Value="{DynamicResource Surface0Brush}" />
+            <Setter Property="BorderBrush"  Value="{DynamicResource Surface1Brush}" />
+            <Setter Property="Foreground"   Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding"      Value="8,6" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="FontSize"     Value="12" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="Background"          Value="{DynamicResource Surface0Brush}" />
+            <Setter Property="Foreground"          Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush"         Value="{DynamicResource Surface1Brush}" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="FontSize"            Value="12" />
+        </Style>
 
-        <!-- Server URL -->
-        <StackPanel Spacing="4">
-            <TextBlock Text="Server URL"
-                       FontSize="12"
-                       FontWeight="SemiBold"
-                       Foreground="{DynamicResource Subtext0Brush}" />
-            <TextBox Text="{Binding ServerUrl}"
-                     PlaceholderText="http://localhost:3579"
-                     Background="{DynamicResource Surface0Brush}"
-                     BorderBrush="{DynamicResource Surface1Brush}"
-                     Foreground="{DynamicResource TextBrush}"
-                     Padding="8,6"
-                     CornerRadius="6" />
-            <TextBlock Text="Leave as localhost when running your own server."
-                       FontSize="11"
-                       Foreground="{DynamicResource Overlay0Brush}" />
-        </StackPanel>
+        <!-- Engine tab buttons -->
+        <Style Selector="Button.tab">
+            <Setter Property="Background"   Value="Transparent" />
+            <Setter Property="Foreground"   Value="{DynamicResource Subtext1Brush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding"      Value="12,6" />
+            <Setter Property="FontSize"     Value="12" />
+            <Setter Property="Cursor"       Value="Hand" />
+        </Style>
+        <Style Selector="Button.tab:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Surface0Brush}" />
+        </Style>
+        <Style Selector="Button.tab-active">
+            <Setter Property="Background"   Value="{DynamicResource BlueBrush}" />
+            <Setter Property="Foreground"   Value="{DynamicResource BaseBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding"      Value="12,6" />
+            <Setter Property="FontSize"     Value="12" />
+            <Setter Property="FontWeight"   Value="Medium" />
+            <Setter Property="Cursor"       Value="Hand" />
+        </Style>
+        <Style Selector="Button.tab-active:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource BlueBrush}" />
+        </Style>
+    </Window.Styles>
 
-        <!-- API Key -->
-        <StackPanel Spacing="4">
-            <TextBlock Text="API Key"
-                       FontSize="12"
-                       FontWeight="SemiBold"
-                       Foreground="{DynamicResource Subtext0Brush}" />
-            <TextBox Text="{Binding ApiKey}"
-                     PasswordChar="•"
-                     PlaceholderText="Leave empty for self-hosted"
-                     Background="{DynamicResource Surface0Brush}"
-                     BorderBrush="{DynamicResource Surface1Brush}"
-                     Foreground="{DynamicResource TextBrush}"
-                     Padding="8,6"
-                     CornerRadius="6" />
-            <TextBlock Text="Required only when using the hosted service."
-                       FontSize="11"
-                       Foreground="{DynamicResource Overlay0Brush}" />
-        </StackPanel>
+    <DockPanel>
 
-        <!-- Translate Engine -->
-        <StackPanel Spacing="4">
-            <TextBlock Text="Translation Engine"
-                       FontSize="12"
-                       FontWeight="SemiBold"
-                       Foreground="{DynamicResource Subtext0Brush}" />
-            <ComboBox SelectedItem="{Binding TranslateEngine}"
-                      ItemsSource="{x:Static views:SettingsWindow.TranslateEngines}"
-                      HorizontalAlignment="Stretch"
-                      Background="{DynamicResource Surface0Brush}"
-                      Foreground="{DynamicResource TextBrush}" />
-        </StackPanel>
+        <!-- ── Sticky top bar ─────────────────────────────────────────────── -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource MantleBrush}"
+                BorderBrush="{DynamicResource Surface0Brush}"
+                BorderThickness="0,0,0,1"
+                Padding="20,12">
+            <Grid ColumnDefinitions="*,Auto,8,Auto">
+                <StackPanel Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center">
+                    <TextBlock Text="Settings"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextBrush}" />
+                    <TextBlock Text="Web OCR Desktop"
+                               FontSize="11"
+                               Foreground="{DynamicResource Overlay0Brush}" />
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Content="Cancel"
+                        Click="OnCancelClick"
+                        Padding="14,6"
+                        Background="{DynamicResource Surface0Brush}"
+                        Foreground="{DynamicResource Subtext1Brush}"
+                        BorderThickness="0"
+                        CornerRadius="6"
+                        FontSize="12" />
+                <Button Grid.Column="3"
+                        Content="Save"
+                        Click="OnSaveClick"
+                        Padding="14,6"
+                        Background="{DynamicResource BlueBrush}"
+                        Foreground="{DynamicResource BaseBrush}"
+                        BorderThickness="0"
+                        CornerRadius="6"
+                        FontSize="12"
+                        FontWeight="Medium" />
+            </Grid>
+        </Border>
 
-        <!-- Dictionary Mode -->
-        <StackPanel Spacing="4">
-            <TextBlock Text="Dictionary Mode"
-                       FontSize="12"
-                       FontWeight="SemiBold"
-                       Foreground="{DynamicResource Subtext0Brush}" />
-            <ComboBox SelectedItem="{Binding DictionaryMode}"
-                      ItemsSource="{x:Static views:SettingsWindow.DictionaryModes}"
-                      HorizontalAlignment="Stretch"
-                      Background="{DynamicResource Surface0Brush}"
-                      Foreground="{DynamicResource TextBrush}" />
-        </StackPanel>
+        <!-- ── Scrollable content ─────────────────────────────────────────── -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20" Spacing="16">
 
-        <!-- Buttons -->
-        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,4,0,0">
-            <Button Grid.Column="1"
-                    Content="Cancel"
-                    Click="OnCancelClick"
-                    Margin="0,0,8,0"
-                    Padding="16,6"
-                    Background="{DynamicResource Surface0Brush}"
-                    Foreground="{DynamicResource Subtext1Brush}"
-                    BorderThickness="0"
-                    CornerRadius="6" />
-            <Button Grid.Column="2"
-                    Content="Save"
-                    Click="OnSaveClick"
-                    Padding="16,6"
-                    Background="{DynamicResource BlueBrush}"
-                    Foreground="{DynamicResource BaseBrush}"
-                    BorderThickness="0"
-                    CornerRadius="6" />
-        </Grid>
+                <!-- ── Engine selector tabs ───────────────────────────────── -->
+                <Border Background="{DynamicResource CrustBrush}"
+                        BorderBrush="{DynamicResource Surface0Brush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="8,6">
+                    <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                        <TextBlock Grid.Column="0"
+                                   Text="OCR ENGINE"
+                                   Classes="section"
+                                   VerticalAlignment="Center"
+                                   Margin="6,0,14,0" />
+                        <Button Grid.Column="1"
+                                x:Name="ServerTabBtn"
+                                Content="🖥  Remote Server"
+                                Classes="tab-active"
+                                Click="OnServerTabClick" />
+                        <Button Grid.Column="3"
+                                x:Name="TesseractTabBtn"
+                                Content="🧩  Local Tesseract"
+                                Classes="tab"
+                                Click="OnTesseractTabClick" />
+                    </Grid>
+                </Border>
 
-    </StackPanel>
+                <!-- ── Server mode content ────────────────────────────────── -->
+                <Grid ColumnDefinitions="*,16,*"
+                      IsVisible="{Binding IsServerMode}">
+
+                    <!-- Server card -->
+                    <Border Grid.Column="0"
+                            Background="{DynamicResource MantleBrush}"
+                            BorderBrush="{DynamicResource Surface0Brush}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="16">
+                        <StackPanel Spacing="0">
+                            <TextBlock Text="SERVER" Classes="section" Margin="0,0,0,12" />
+
+                            <StackPanel Spacing="0" Margin="0,0,0,12">
+                                <TextBlock Text="Server URL" Classes="label" />
+                                <TextBox Text="{Binding ServerUrl}"
+                                         PlaceholderText="http://localhost:3579" />
+                                <TextBlock Text="Default: http://localhost:3579"
+                                           Classes="hint" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="0" Margin="0,0,0,12">
+                                <TextBlock Text="API Key" Classes="label" />
+                                <TextBox Text="{Binding ApiKey}"
+                                         PasswordChar="•"
+                                         PlaceholderText="Leave empty for self-hosted" />
+                                <TextBlock Text="Required only for the hosted service."
+                                           Classes="hint" />
+                            </StackPanel>
+
+                            <Separator Background="{DynamicResource Surface0Brush}"
+                                       Height="1"
+                                       Margin="0,0,0,12" />
+                            <Grid ColumnDefinitions="Auto,10,*">
+                                <Button Grid.Column="0"
+                                        Content="Test Connection"
+                                        Click="OnTestConnectionClick"
+                                        IsEnabled="{Binding !IsTestingConnection}"
+                                        Padding="10,5"
+                                        Background="{DynamicResource Surface0Brush}"
+                                        Foreground="{DynamicResource Subtext1Brush}"
+                                        BorderBrush="{DynamicResource Surface1Brush}"
+                                        CornerRadius="6"
+                                        FontSize="12" />
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding ConnectionStatus}"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource Subtext0Brush}"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           IsVisible="{Binding ConnectionStatus.Length,
+                                             Converter={x:Static vm:NonZeroConverter.Instance}}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Translation + Dictionary card -->
+                    <Border Grid.Column="2"
+                            Background="{DynamicResource MantleBrush}"
+                            BorderBrush="{DynamicResource Surface0Brush}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="16">
+                        <StackPanel Spacing="0">
+
+                            <TextBlock Text="TRANSLATION" Classes="section" Margin="0,0,0,12" />
+                            <StackPanel Spacing="0" Margin="0,0,0,16">
+                                <TextBlock Text="Engine" Classes="label" />
+                                <ComboBox SelectedItem="{Binding TranslateEngine}"
+                                          ItemsSource="{x:Static views:SettingsWindow.TranslateEngines}" />
+                                <TextBlock Text="none = OCR only · local = Opus-MT · deepl = DeepL API"
+                                           Classes="hint" />
+                            </StackPanel>
+
+                            <Separator Background="{DynamicResource Surface0Brush}"
+                                       Height="1"
+                                       Margin="0,0,0,12" />
+                            <TextBlock Text="DICTIONARY" Classes="section" Margin="0,0,0,12" />
+                            <StackPanel Spacing="0">
+                                <TextBlock Text="Lookup backend" Classes="label" />
+                                <ComboBox SelectedItem="{Binding DictionaryMode}"
+                                          ItemsSource="{x:Static views:SettingsWindow.DictionaryModes}" />
+                                <TextBlock Text="local = Jitendex (offline) · jisho = jisho.org (online)"
+                                           Classes="hint" />
+                            </StackPanel>
+
+                        </StackPanel>
+                    </Border>
+
+                </Grid>
+
+                <!-- ── Tesseract mode content ──────────────────────────────── -->
+                <Border IsVisible="{Binding IsTesseractMode}"
+                        Background="{DynamicResource MantleBrush}"
+                        BorderBrush="{DynamicResource Surface0Brush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="16">
+                    <StackPanel Spacing="0">
+                        <TextBlock Text="LOCAL TESSERACT OCR" Classes="section" Margin="0,0,0,14" />
+
+                        <Grid ColumnDefinitions="*,16,*">
+
+                            <!-- Language -->
+                            <StackPanel Grid.Column="0" Spacing="0">
+                                <TextBlock Text="Language" Classes="label" />
+                                <ComboBox SelectedItem="{Binding TesseractLang}"
+                                          ItemsSource="{x:Static views:SettingsWindow.TesseractLangs}" />
+                                <TextBlock Text="jpn = Japanese · jpn_vert = Japanese vertical · eng = English · chi_sim / chi_tra = Chinese · kor = Korean"
+                                           Classes="hint" />
+                            </StackPanel>
+
+                            <!-- Quality -->
+                            <StackPanel Grid.Column="2" Spacing="0">
+                                <TextBlock Text="Model Quality" Classes="label" />
+                                <ComboBox SelectedItem="{Binding TesseractQuality}"
+                                          ItemsSource="{x:Static views:SettingsWindow.TesseractQualities}" />
+                                <TextBlock Text="fast = smaller file (~4–14 MB) · best = higher accuracy, larger download"
+                                           Classes="hint" />
+                            </StackPanel>
+
+                        </Grid>
+
+                        <Separator Background="{DynamicResource Surface0Brush}"
+                                   Height="1"
+                                   Margin="0,14,0,12" />
+
+                        <TextBlock Text="{Binding TesseractModelStatus}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource Subtext1Brush}" />
+                        <TextBlock Text="The language model downloads automatically the first time you run a capture."
+                                   Classes="hint" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ── Row 2: Continuous Mode (full width) ─────────────────── -->
+                <Border Background="{DynamicResource MantleBrush}"
+                        BorderBrush="{DynamicResource Surface0Brush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="16">
+                    <Grid ColumnDefinitions="*,40,*">
+
+                        <!-- Scan interval (left half) -->
+                        <StackPanel Grid.Column="0" Spacing="0">
+                            <TextBlock Text="CONTINUOUS MODE" Classes="section" Margin="0,0,0,12" />
+                            <TextBlock Text="Scan Interval" Classes="label" />
+                            <Grid ColumnDefinitions="*,10,36">
+                                <Slider Grid.Column="0"
+                                        Value="{ReflectionBinding ScanIntervalSeconds}"
+                                        Minimum="1"
+                                        Maximum="30"
+                                        TickFrequency="1"
+                                        IsSnapToTickEnabled="True"
+                                        VerticalAlignment="Center"
+                                        Foreground="{DynamicResource BlueBrush}" />
+                                <Border Grid.Column="2"
+                                        Background="{DynamicResource Surface0Brush}"
+                                        CornerRadius="5"
+                                        VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ScanIntervalLabel}"
+                                               FontSize="11"
+                                               FontWeight="Medium"
+                                               Foreground="{DynamicResource TextBrush}"
+                                               HorizontalAlignment="Center"
+                                               Margin="4,3" />
+                                </Border>
+                            </Grid>
+                            <TextBlock Text="How often to re-scan the selected region."
+                                       Classes="hint" />
+                        </StackPanel>
+
+                        <!-- Overlay toggle (right half) -->
+                        <StackPanel Grid.Column="2" Spacing="0">
+                            <TextBlock Text="TRANSLATION OVERLAY" Classes="section" Margin="0,0,0,12" />
+                            <CheckBox IsChecked="{ReflectionBinding ShowOverlay}"
+                                      Foreground="{DynamicResource TextBrush}">
+                                <TextBlock Text="Show overlay on captured region"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextBrush}" />
+                            </CheckBox>
+                            <TextBlock Text="Displays translation as a floating window over the capture area. Useful for subtitle translation."
+                                       Classes="hint"
+                                       Margin="24,4,0,0" />
+                        </StackPanel>
+
+                    </Grid>
+                </Border>
+
+                <!-- Bottom spacer -->
+                <Border Height="4" />
+
+            </StackPanel>
+        </ScrollViewer>
+
+    </DockPanel>
 </Window>
