@@ -24,6 +24,10 @@ public static class OcrRoutes
             try   { imageBytes = Convert.FromBase64String(imageData); }
             catch { return Results.BadRequest(new { error = "image must be valid base64" }); }
 
+            const int MaxPayloadBytes = 10 * 1024 * 1024; // 10 MB decoded
+            if (imageBytes.Length > MaxPayloadBytes)
+                return Results.BadRequest(new { error = "image payload exceeds 10 MB limit" });
+
             var engine = req.TranslateEngine ?? "none";
 
             // Enqueue and await background worker

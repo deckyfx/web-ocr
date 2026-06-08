@@ -4,6 +4,13 @@ using WebOcrServer.Data;
 
 namespace WebOcrServer;
 
+/// <summary>Tracks whether all boot tasks (model download + service init) have completed.</summary>
+public sealed class BootState
+{
+    public bool IsReady        { get; set; }
+    public bool DictionaryReady { get; set; }
+}
+
 public static class ServiceExtensions
 {
     public static void AddWebOcrServices(this WebApplicationBuilder builder)
@@ -39,9 +46,15 @@ public static class ServiceExtensions
         builder.Services.AddSingleton<InferenceQueue>();
         builder.Services.AddHostedService<InferenceWorker>();
 
+        // Boot background service: scaffolds dirs, runs migrations, downloads models, inits services
+        builder.Services.AddHostedService<BootBackgroundService>();
+
         // EF Core scoped DbContext (SQLite)
         builder.Services.AddDbContext<AppDbContext>(o =>
             o.UseSqlite($"Data Source={config.DatabasePath}"));
+
+        // Readiness tracking — set to true at end of RunBootTasksAsync
+        builder.Services.AddSingleton<BootState>();
 
         // Blazor with Interactive Server mode (required for IJSRuntime / JS Interop)
         builder.Services.AddRazorComponents()

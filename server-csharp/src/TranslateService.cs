@@ -32,16 +32,34 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
         string tokenizerJsonPath,
         CancellationToken ct = default)
     {
-        var opts = MakeSessionOptions();
-        _encoder = await Task.Run(() => new InferenceSession(encoderPath, opts), ct);
-        _decoder = await Task.Run(() => new InferenceSession(decoderPath, opts), ct);
+        using var opts = MakeSessionOptions();
+        InferenceSession? enc = null;
+        InferenceSession? dec = null;
+        try
+        {
+            enc = await Task.Run(() => new InferenceSession(encoderPath, opts), ct);
+            dec = await Task.Run(() => new InferenceSession(decoderPath, opts), ct);
 
-        // UnigramTokenizer reads HuggingFace tokenizer.json (model.type == "Unigram")
-        _srcTokenizer = await Task.Run(() => UnigramTokenizer.FromJson(tokenizerJsonPath), ct);
-        _tgtTokenizer = _srcTokenizer;
+            // UnigramTokenizer reads HuggingFace tokenizer.json (model.type == "Unigram")
+            var tok = await Task.Run(() => UnigramTokenizer.FromJson(tokenizerJsonPath), ct);
 
-        Console.WriteLine("[Translate] Opus-MT sessions loaded.");
-        await Task.Run(() => WarmUp(), ct);
+            _encoder      = enc;
+            _decoder      = dec;
+            _srcTokenizer = tok;
+            _tgtTokenizer = tok;
+
+            Console.WriteLine("[Translate] Opus-MT sessions loaded.");
+            await Task.Run(() => WarmUp(), ct);
+        }
+        catch
+        {
+            // Dispose partially-constructed sessions so ONNX native handles aren't leaked
+            dec?.Dispose();
+            enc?.Dispose();
+            _encoder = _decoder = null;
+            _srcTokenizer = _tgtTokenizer = null;
+            throw;
+        }
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -59,6 +77,13 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
         // "auto" = DeepL if key is available, otherwise local
         if (engine == "auto")
             engine = config.DeeplAvailable ? "deepl" : "local";
+
+        // Reject unknown engine values explicitly
+        if (engine is not "local" and not "deepl")
+        {
+            logger.LogWarning("Unknown translate engine '{Engine}'; returning null.", engine);
+            return null;
+        }
 
         if (engine == "deepl")
         {

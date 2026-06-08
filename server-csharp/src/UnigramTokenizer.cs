@@ -69,9 +69,10 @@ public sealed class UnigramTokenizer
     {
         if (string.IsNullOrEmpty(text)) return Array.Empty<int>();
 
-        // Metaspace: prepend ▁ — for Japanese there are no spaces so the entire
-        // text is one "word" from the pre-tokenizer's perspective
-        var s = SpaceMark + text;
+        // Metaspace: prepend ▁ and map all Unicode whitespace to ▁ so tabs,
+        // newlines, and other space variants get the same word-boundary treatment
+        var normalized = string.Concat(text.Select(c => char.IsWhiteSpace(c) ? SpaceMark : c));
+        var s = SpaceMark + normalized;
         int n = s.Length;
 
         var dp   = new float[n + 1];

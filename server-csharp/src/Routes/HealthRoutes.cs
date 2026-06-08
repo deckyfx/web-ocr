@@ -6,11 +6,11 @@ public static class HealthRoutes
 {
     public static void MapHealthRoutes(this WebApplication app)
     {
-        app.MapGet("/health", (AppConfig config) =>
+        app.MapGet("/health", (AppConfig config, BootState boot) =>
         {
             var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
             return Results.Ok(new HealthResponse(
-                Status:             "ok",
+                Status:             boot.IsReady ? (boot.DictionaryReady ? "ok" : "degraded") : "starting",
                 Version:            version,
                 OcrModelsDir:       config.OcrModelsDir,
                 TranslateModelsDir: config.TranslateModelsDir,

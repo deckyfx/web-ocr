@@ -7,14 +7,25 @@ builder.AddWebOcrServices();
 
 var app = builder.Build();
 
+// Exception handling — must be first in the pipeline
+if (app.Environment.IsDevelopment())
+    app.UseDeveloperExceptionPage();
+else
+{
+    app.UseExceptionHandler("/error");
+    app.Map("/error", () => Results.Problem("An unexpected error occurred.", statusCode: 500));
+}
+
 app.UseCors();
-app.UseStaticFiles();   // serve wwwroot/ (react-app.js, etc.)
-app.UseAntiforgery();   // required by MapRazorComponents
+app.UseStaticFiles();
+app.UseAntiforgery();
 
-await app.RunBootTasksAsync();
-
+// Map routes BEFORE RunBootTasksAsync so /health responds during model download/init
+// (health returns "starting" status until BootState.IsReady is set)
 app.MapWebOcrRoutes();
 app.MapRazorComponents<App>()
-   .AddInteractiveServerRenderMode(); // enables IJSRuntime / SignalR circuit
+   .AddInteractiveServerRenderMode();
 
+// Boot tasks run as BootBackgroundService — HTTP server starts immediately,
+// /health returns "starting" until BootState.IsReady is set
 app.Run();

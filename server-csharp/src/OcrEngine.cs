@@ -27,7 +27,7 @@ public class OcrEngine
 
     public async Task InitializeAsync(string encoderPath, string decoderPath, string vocabPath)
     {
-        var opts = MakeSessionOptions();
+        using var opts = MakeSessionOptions();
         Encoder    = await Task.Run(() => new InferenceSession(encoderPath, opts));
         Decoder    = await Task.Run(() => new InferenceSession(decoderPath, opts));
         Vocabulary = await Task.Run(() => new List<string>(File.ReadAllLines(vocabPath)));
@@ -58,8 +58,23 @@ public class OcrEngine
         using var _ = Decoder!.Run(decoderInputs);
     }
 
+    private const int MaxImageDimension = 8192;
+
     public string ProcessOcr(byte[] imageBytes)
     {
+        // Preflight: read dimensions from the compressed stream without allocating
+        // a full unmanaged bitmap, so oversized inputs are rejected cheaply
+        using (var data = SKData.CreateCopy(imageBytes))
+        using (var codec = SKCodec.Create(data))
+        {
+            if (codec is null)
+                throw new ArgumentException("Unsupported or corrupt image format.");
+            var info = codec.Info;
+            if (info.Width > MaxImageDimension || info.Height > MaxImageDimension)
+                throw new ArgumentException(
+                    $"Image {info.Width}×{info.Height} exceeds the {MaxImageDimension}px per-side limit.");
+        }
+
         using var stream = new MemoryStream(imageBytes);
         using var originalBitmap = SKBitmap.Decode(stream);
 

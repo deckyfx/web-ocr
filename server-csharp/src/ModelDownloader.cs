@@ -114,7 +114,8 @@ public static class ModelDownloader
             foreach (var asset in release.GetProperty("assets").EnumerateArray())
             {
                 var name = asset.GetProperty("name").GetString() ?? "";
-                if (name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
+                if (name.Contains(nameContains, StringComparison.OrdinalIgnoreCase)
+                    && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 {
                     var url = asset.GetProperty("browser_download_url").GetString()
                               ?? throw new InvalidOperationException($"browser_download_url missing for {name}");

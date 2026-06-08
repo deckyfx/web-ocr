@@ -1,14 +1,13 @@
 /**
  * test-client.ts
- * Sends every sample image through /ocr → /translate → /analyze
- * and prints a colour-coded report.
+ * Sends every sample image through /ocr → /analyze and prints a colour-coded report.
  *
  * Usage:
- *   bun run server-csharp/test-client.ts [--server http://localhost:3579] [--engine local|deepl|none]
+ *   bun run server-csharp/test-client.ts [--server http://localhost:3579] [--engine auto|local|deepl|none]
  */
 
 import { join, basename } from "node:path";
-import { readdirSync } from "node:fs";
+import { readdirSync, existsSync } from "node:fs";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -67,6 +66,27 @@ interface AnalyzeResponse {
   sanitized:  string;
   tokens:     AnalyzeToken[];
   elapsed_ms: number;
+}
+
+// ─── Validation ──────────────────────────────────────────────────────────────
+
+if (serverIdx !== -1 && (!args[serverIdx + 1] || args[serverIdx + 1].startsWith("--"))) {
+  console.error(`${RED}Error: --server requires a URL argument${RESET}`);
+  process.exit(1);
+}
+if (engineIdx !== -1 && (!args[engineIdx + 1] || args[engineIdx + 1].startsWith("--"))) {
+  console.error(`${RED}Error: --engine requires a value argument${RESET}`);
+  process.exit(1);
+}
+const VALID_ENGINES = ["auto", "local", "deepl", "none"];
+if (!VALID_ENGINES.includes(ENGINE)) {
+  console.error(`${RED}Error: unknown engine '${ENGINE}' — valid: ${VALID_ENGINES.join(" | ")}${RESET}`);
+  process.exit(1);
+}
+if (!existsSync(SAMPLES)) {
+  console.error(`${RED}Error: samples directory not found: ${SAMPLES}${RESET}`);
+  console.error(`  Create it and add test images (.jpg, .png, .webp, or .gif).`);
+  process.exit(1);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
