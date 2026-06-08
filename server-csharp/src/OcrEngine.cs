@@ -15,11 +15,47 @@ public class OcrEngine
     private const int MAX_LENGTH = 300;
     private const int SPECIAL_TOKEN_CUTOFF = 14;
 
+    private static Microsoft.ML.OnnxRuntime.SessionOptions MakeSessionOptions()
+    {
+        var opts = new Microsoft.ML.OnnxRuntime.SessionOptions();
+        opts.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+        opts.ExecutionMode          = ExecutionMode.ORT_PARALLEL;
+        opts.InterOpNumThreads      = Environment.ProcessorCount;
+        opts.IntraOpNumThreads      = Environment.ProcessorCount;
+        return opts;
+    }
+
     public async Task InitializeAsync(string encoderPath, string decoderPath, string vocabPath)
     {
-        Encoder = await Task.Run(() => new InferenceSession(encoderPath));
-        Decoder = await Task.Run(() => new InferenceSession(decoderPath));
+        var opts = MakeSessionOptions();
+        Encoder    = await Task.Run(() => new InferenceSession(encoderPath, opts));
+        Decoder    = await Task.Run(() => new InferenceSession(decoderPath, opts));
         Vocabulary = await Task.Run(() => new List<string>(File.ReadAllLines(vocabPath)));
+
+        // Warm up — compiles ONNX op kernels so the first real request isn't cold
+        await Task.Run(WarmUp);
+    }
+
+    private void WarmUp()
+    {
+        // One encoder pass with a blank 224x224 image
+        var dummy = new DenseTensor<float>(new[] { 1, 3, 224, 224 });
+        var encoderInputs = new List<NamedOnnxValue>
+        {
+            NamedOnnxValue.CreateFromTensor("pixel_values", dummy)
+        };
+        using var encoderOut = Encoder!.Run(encoderInputs);
+        var hidden = encoderOut[0].Value as DenseTensor<float> ?? throw new InvalidOperationException();
+
+        // One decoder step so the decoder kernel is also compiled
+        var startIds  = new DenseTensor<long>(new[] { 1, 1 });
+        startIds[0, 0] = BOS_TOKEN;
+        var decoderInputs = new List<NamedOnnxValue>
+        {
+            NamedOnnxValue.CreateFromTensor("input_ids",           startIds),
+            NamedOnnxValue.CreateFromTensor("encoder_hidden_states", hidden),
+        };
+        using var _ = Decoder!.Run(decoderInputs);
     }
 
     public string ProcessOcr(byte[] imageBytes)
@@ -36,7 +72,7 @@ public class OcrEngine
         Console.WriteLine($"[OCR Engine] Dimensions: {originalBitmap.Width}x{originalBitmap.Height} | Layout: {(isVertical ? "Vertical" : "Horizontal")}");
 
         // 1. Convert to Grayscale
-        var grayBitmap = new SKBitmap(originalBitmap.Width, originalBitmap.Height, SKColorType.Gray8, SKAlphaType.Opaque);
+        using var grayBitmap = new SKBitmap(originalBitmap.Width, originalBitmap.Height, SKColorType.Gray8, SKAlphaType.Opaque);
         using (var canvas = new SKCanvas(grayBitmap))
         {
             using var paint = new SKPaint();
@@ -52,23 +88,23 @@ public class OcrEngine
 
         // 2. Background Inversion logic matching Rust
         long totalBrightness = 0;
-        int pixelCount = grayBitmap.Width * grayBitmap.Height;
-        
+        int grayWidth    = grayBitmap.Width;
+        int grayHeight   = grayBitmap.Height;
+        int grayRowBytes = grayBitmap.RowBytes;
+
         unsafe
         {
             byte* ptr = (byte*)grayBitmap.GetPixels().ToPointer();
-            for (int i = 0; i < pixelCount; i++)
-            {
-                totalBrightness += ptr[i];
-            }
+            for (int y = 0; y < grayHeight; y++)
+            for (int x = 0; x < grayWidth;  x++)
+                totalBrightness += ptr[y * grayRowBytes + x];
 
-            double meanBrightness = (double)totalBrightness / pixelCount;
+            double meanBrightness = (double)totalBrightness / (grayWidth * grayHeight);
             if (meanBrightness < 127.0)
             {
-                for (int i = 0; i < pixelCount; i++)
-                {
-                    ptr[i] = (byte)(255 - ptr[i]);
-                }
+                for (int y = 0; y < grayHeight; y++)
+                for (int x = 0; x < grayWidth;  x++)
+                    ptr[y * grayRowBytes + x] = (byte)(255 - ptr[y * grayRowBytes + x]);
             }
         }
 
@@ -182,7 +218,7 @@ public class OcrEngine
             {
                 string tokenStr = Vocabulary[(int)id];
                 
-                if (tokenStr.StartsWith(" ")) tokenStr = tokenStr.Replace(" ", "");
+                if (tokenStr.StartsWith(" ")) tokenStr = tokenStr[1..];
                 if (tokenStr.StartsWith("##")) tokenStr = tokenStr.Substring(2);
 
                 outWords.Add(tokenStr);

@@ -43,8 +43,9 @@ public static class ServiceExtensions
         builder.Services.AddDbContext<AppDbContext>(o =>
             o.UseSqlite($"Data Source={config.DatabasePath}"));
 
-        // Blazor static SSR (index page only — no interactive render mode)
-        builder.Services.AddRazorComponents();
+        // Blazor with Interactive Server mode (required for IJSRuntime / JS Interop)
+        builder.Services.AddRazorComponents()
+                        .AddInteractiveServerComponents();
     }
 
     public static WebApplication MapWebOcrRoutes(this WebApplication app)

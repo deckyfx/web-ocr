@@ -17,7 +17,7 @@ const serverIdx = args.indexOf("--server");
 const engineIdx = args.indexOf("--engine");
 
 const BASE_URL = serverIdx !== -1 ? args[serverIdx + 1] : "http://localhost:3579";
-const ENGINE   = engineIdx  !== -1 ? args[engineIdx  + 1] : "local";
+const ENGINE   = engineIdx  !== -1 ? args[engineIdx  + 1] : "auto";
 const SAMPLES  = join(import.meta.dir, "samples");
 
 // ─── Colour helpers ───────────────────────────────────────────────────────────

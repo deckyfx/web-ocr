@@ -46,7 +46,7 @@ public sealed class InferenceWorker(
         var text = await Task.Run(() => ocr.ProcessOcr(job.ImageBytes), ct);
 
         string? translation = null;
-        if (job.Engine is "local" or "deepl" && !string.IsNullOrWhiteSpace(text))
+        if (job.Engine is not "none" && !string.IsNullOrWhiteSpace(text))
             translation = await translate.TranslateAsync(text, job.Engine, ct);
 
         sw.Stop();

@@ -30,7 +30,7 @@ public static class ModelDownloader
         resp.EnsureSuccessStatusCode();
 
         var total = resp.Content.Headers.ContentLength ?? -1L;
-        var tmp   = destPath + ".download";
+        var tmp   = destPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
 
         try
         {

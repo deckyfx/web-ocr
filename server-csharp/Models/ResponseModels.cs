@@ -16,7 +16,7 @@ public record AnalyzeResponse(
     string Sanitized,
     List<string> Sentences,
     List<TokenInfo> Tokens,
-    List<Definition?> Definitions,
+    Definition?[] Definitions,
     long ElapsedMs
 );
 

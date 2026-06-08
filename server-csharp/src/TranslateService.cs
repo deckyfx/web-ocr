@@ -17,9 +17,11 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
     private UnigramTokenizer?  _tgtTokenizer;  // same model encodes both sides
 
     // MarianMT special token IDs for Xenova/opus-mt-ja-en
-    private const int DecoderStartToken = 60715; // PAD / decoder_start_token_id
-    private const int EosToken          = 0;
-    private const int MaxLength         = 512;
+    private const int   DecoderStartToken  = 60715; // PAD / decoder_start_token_id
+    private const int   EosToken           = 0;
+    private const int   MaxLength          = 150;   // 512 caused runaway loops; 150 is still generous for any manga line
+    private const float RepetitionPenalty  = 1.3f;  // >1.0 discourages repeating already-generated tokens
+    private const int   NoRepeatNgramSize  = 3;     // ban any token that would form a repeated 3-gram
 
     public bool IsReady => _encoder is not null && _decoder is not null && _srcTokenizer is not null;
 
@@ -30,20 +32,23 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
         string tokenizerJsonPath,
         CancellationToken ct = default)
     {
-        _encoder = await Task.Run(() => new InferenceSession(encoderPath), ct);
-        _decoder = await Task.Run(() => new InferenceSession(decoderPath), ct);
+        var opts = MakeSessionOptions();
+        _encoder = await Task.Run(() => new InferenceSession(encoderPath, opts), ct);
+        _decoder = await Task.Run(() => new InferenceSession(decoderPath, opts), ct);
 
         // UnigramTokenizer reads HuggingFace tokenizer.json (model.type == "Unigram")
         _srcTokenizer = await Task.Run(() => UnigramTokenizer.FromJson(tokenizerJsonPath), ct);
         _tgtTokenizer = _srcTokenizer;
 
         Console.WriteLine("[Translate] Opus-MT sessions loaded.");
+        await Task.Run(() => WarmUp(), ct);
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Translates text using the requested engine ("local", "deepl", or "none").
+    /// Translates text using the requested engine ("auto", "local", "deepl", or "none").
+    /// "auto" uses DeepL when DEEPL_API_KEY is configured, otherwise falls back to local.
     /// Returns null when engine is "none" or on failure.
     /// </summary>
     public async Task<string?> TranslateAsync(
@@ -51,14 +56,64 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
     {
         if (engine == "none" || string.IsNullOrWhiteSpace(text)) return null;
 
-        if (engine == "deepl" && config.DeeplAvailable)
+        // "auto" = DeepL if key is available, otherwise local
+        if (engine == "auto")
+            engine = config.DeeplAvailable ? "deepl" : "local";
+
+        if (engine == "deepl")
+        {
+            if (!config.DeeplAvailable)
+            {
+                logger.LogWarning("DeepL requested but DEEPL_API_KEY is not configured; returning null.");
+                return null;
+            }
             return await DeeplTranslateAsync(text, ct);
+        }
 
         if (IsReady)
             return await Task.Run(() => LocalTranslate(text), ct);
 
         logger.LogWarning("Local translate requested but models not ready; returning null.");
         return null;
+    }
+
+    // ── Session setup ─────────────────────────────────────────────────────────
+
+    private static Microsoft.ML.OnnxRuntime.SessionOptions MakeSessionOptions()
+    {
+        var opts = new Microsoft.ML.OnnxRuntime.SessionOptions();
+        opts.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+        opts.ExecutionMode          = ExecutionMode.ORT_PARALLEL;
+        opts.InterOpNumThreads      = Environment.ProcessorCount;
+        opts.IntraOpNumThreads      = Environment.ProcessorCount;
+        return opts;
+    }
+
+    private void WarmUp()
+    {
+        // Encode a short dummy token sequence to compile encoder ops
+        var ids  = new DenseTensor<long>(new[] { 1, 1 });
+        var mask = new DenseTensor<long>(new[] { 1, 1 });
+        ids[0, 0] = mask[0, 0] = 1L;
+        var encoderInputs = new List<NamedOnnxValue>
+        {
+            NamedOnnxValue.CreateFromTensor("input_ids",      ids),
+            NamedOnnxValue.CreateFromTensor("attention_mask", mask),
+        };
+        using var encoderOut = _encoder!.Run(encoderInputs);
+        var hidden = encoderOut[0].Value as DenseTensor<float> ?? throw new InvalidOperationException();
+
+        // One decoder step to compile decoder ops
+        var decIds = new DenseTensor<long>(new[] { 1, 1 });
+        decIds[0, 0] = DecoderStartToken;
+        var decoderInputs = new List<NamedOnnxValue>
+        {
+            NamedOnnxValue.CreateFromTensor("input_ids",              decIds),
+            NamedOnnxValue.CreateFromTensor("encoder_hidden_states",  hidden),
+            NamedOnnxValue.CreateFromTensor("encoder_attention_mask", mask),
+        };
+        using var _ = _decoder!.Run(decoderInputs);
+        Console.WriteLine("[Translate] Warm-up complete.");
     }
 
     // ── Local ONNX translation ────────────────────────────────────────────────
@@ -119,19 +174,61 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
             int vocabSize     = (int)logits.Dimensions[2];
             int lastRowOffset = (curLen - 1) * vocabSize;
 
-            int    nextToken   = EosToken;
-            float  maxLogit    = float.MinValue;
+            // Tokens that would complete a repeated n-gram are hard-banned
+            var banned    = GetBannedNgramTokens(tokens, NoRepeatNgramSize);
+            // Tokens already generated are penalised (soft discouragement)
+            var seenSet   = new HashSet<int>(tokens);
+
+            int   nextToken = EosToken;
+            float maxLogit  = float.MinValue;
+
             for (int v = 0; v < vocabSize; v++)
             {
+                if (banned.Contains(v)) continue;
+
                 float logit = logits.GetValue(lastRowOffset + v);
+
+                // Repetition penalty: divide positive logits, multiply negative logits
+                if (seenSet.Contains(v))
+                    logit = logit > 0f ? logit / RepetitionPenalty : logit * RepetitionPenalty;
+
                 if (logit > maxLogit) { maxLogit = logit; nextToken = v; }
             }
 
-            if (nextToken == EosToken) break;
+            // EOS or PAD both signal end-of-sequence
+            if (nextToken == EosToken || nextToken == DecoderStartToken) break;
             tokens.Add(nextToken);
         }
 
         return tokens;
+    }
+
+    /// <summary>
+    /// Returns the set of token IDs whose selection would create a repeated n-gram.
+    /// Scans history for every occurrence of the last (ngramSize-1) tokens and
+    /// collects the token that followed each occurrence.
+    /// </summary>
+    private static HashSet<int> GetBannedNgramTokens(List<int> tokens, int ngramSize)
+    {
+        var banned    = new HashSet<int>();
+        int len       = tokens.Count;
+        int prefixLen = ngramSize - 1;
+
+        if (len < prefixLen) return banned;
+
+        int prefixStart = len - prefixLen;
+
+        for (int i = 0; i <= len - ngramSize; i++)
+        {
+            bool match = true;
+            for (int j = 0; j < prefixLen; j++)
+            {
+                if (tokens[i + j] != tokens[prefixStart + j]) { match = false; break; }
+            }
+            if (match) banned.Add(tokens[i + prefixLen]);
+        }
+
+        return banned;
     }
 
     // ── DeepL fallback ────────────────────────────────────────────────────────
@@ -162,6 +259,10 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
                       .GetProperty("translations")[0]
                       .GetProperty("text")
                       .GetString();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

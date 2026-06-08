@@ -37,6 +37,11 @@ public static class OcrRoutes
                 return Results.Problem("OCR processing failed", statusCode: 500);
             }
 
+            logger.LogInformation(
+                "POST /ocr  engine={Engine}  {ElapsedMs}ms  text={Preview}",
+                engine, result.ElapsedMs,
+                result.Text.Length > 40 ? result.Text[..40] + "…" : result.Text);
+
             // Fire-and-forget DB log (non-blocking)
             _ = LogOcrAsync(scopeFactory, result, engine);
 

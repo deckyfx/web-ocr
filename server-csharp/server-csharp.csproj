@@ -8,6 +8,11 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <!-- Build React client before the C# project so wwwroot/js/react-app.js is ready -->
+  <Target Name="BuildReactClient" BeforeTargets="Build">
+    <Exec Command="bun run build" WorkingDirectory="$(ProjectDir)" />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.*">

@@ -1,7 +1,7 @@
 // ── Engine / settings types ───────────────────────────────────────────────────
 
 export type OcrEngine         = "tesseract" | "server";
-export type ServerTranslation = "none" | "local" | "deepl";
+export type ServerTranslation = "none" | "auto" | "local" | "deepl";
 export type ClientTranslation = "none" | "deepl";
 export type DictMode          = "local" | "jisho";
 export type TesseractQuality  = "4.0.0" | "4.0.0_best";
@@ -28,7 +28,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   ocrEngine: "tesseract",
   serverUrl: "",
-  serverTranslation: "none",
+  serverTranslation: "auto",
   dictMode: "jisho",
   tesseractLang: "jpn",
   tesseractQuality: "4.0.0",

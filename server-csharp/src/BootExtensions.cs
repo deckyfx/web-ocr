@@ -21,7 +21,7 @@ public static class BootExtensions
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.EnsureCreatedAsync();
+            await db.Database.MigrateAsync();
             logger.LogInformation("Database ready at {Path}", config.DatabasePath);
         }
 

@@ -460,10 +460,12 @@
             <label for="serverTranslation">Server-side Translation</label>
             <select id="serverTranslation">
               <option value="none">Disabled</option>
+              <option value="auto">Auto (DeepL if key set, else local)</option>
               <option value="local">Embedded model (OPUS-MT)</option>
               <option value="deepl">DeepL via server key</option>
             </select>
             <p class="hint" id="serverHint-none">OCR text only — no translation.</p>
+            <p class="hint" id="serverHint-auto" style="display:none">Uses DeepL when <code>DEEPL_API_KEY</code> is set on the server, otherwise falls back to the embedded OPUS-MT model.</p>
             <p class="hint" id="serverHint-local" style="display:none">Uses OPUS-MT on your server. No external requests.</p>
             <p class="hint" id="serverHint-deepl" style="display:none">Server calls DeepL using its configured API key.</p>
           </div>

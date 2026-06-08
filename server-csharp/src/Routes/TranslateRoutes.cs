@@ -28,6 +28,10 @@ public static class TranslateRoutes
                 return Results.Problem("Translation processing failed", statusCode: 500);
             }
 
+            logger.LogInformation(
+                "POST /translate  engine={Engine}  {ElapsedMs}ms",
+                engine, result.ElapsedMs);
+
             // Fire-and-forget DB log
             _ = LogTranslateAsync(scopeFactory, req.Text, result, engine);
 

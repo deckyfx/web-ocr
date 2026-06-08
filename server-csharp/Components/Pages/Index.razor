@@ -1,16 +1,29 @@
 @page "/"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
-<h1>Web OCR Server <span class="badge">running</span></h1>
+@* React mounts into this div; Blazor manages its lifetime via JS Interop *@
+<div @ref="_root"></div>
 
-<h2>API Endpoints</h2>
-<ul>
-    <li><code>GET  /health</code> — server status &amp; config</li>
-    <li><code>POST /ocr</code> — OCR an image (base64) → Japanese text</li>
-    <li><code>POST /translate</code> — translate Japanese → English (local or DeepL)</li>
-    <li><code>POST /analyze</code> — tokenize &amp; look up definitions</li>
-</ul>
+@code {
+    private ElementReference _root;
 
-<h2>Quick test</h2>
-<ul>
-    <li><a href="/health">/health</a></li>
-</ul>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await JS.InvokeVoidAsync("ReactBridge.mount", _root);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("ReactBridge.unmount", _root);
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit closed (page navigated away) — React already GC'd
+        }
+    }
+}
