@@ -1,0 +1,143 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WebOcrDesktop.ViewModels"
+        xmlns:c="using:WebOcrDesktop.Controls"
+        x:Class="WebOcrDesktop.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="Web OCR"
+        Width="460"
+        MinWidth="360"
+        MinHeight="140"
+        SizeToContent="Height"
+        MaxHeight="720"
+        Background="{DynamicResource BaseBrush}"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="Manual"
+        CanResize="True">
+
+    <Window.Styles>
+        <!-- Ghost button: transparent background -->
+        <Style Selector="Button.ghost">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource Subtext1Brush}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Surface0Brush}" />
+        </Style>
+
+        <!-- Action button: visible background -->
+        <Style Selector="Button.action">
+            <Setter Property="Background" Value="{DynamicResource Surface0Brush}" />
+            <Setter Property="Foreground" Value="{DynamicResource BlueBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Surface1Brush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="Button.action:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource Surface1Brush}" />
+        </Style>
+
+        <!-- Continuous button active state -->
+        <Style Selector="Button.action-active">
+            <Setter Property="Background" Value="{DynamicResource TealBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource BaseBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource TealBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+    </Window.Styles>
+
+    <DockPanel>
+
+        <!-- ── Toolbar ────────────────────────────────────────────────────── -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource CrustBrush}"
+                Padding="10,7">
+            <Grid ColumnDefinitions="Auto,8,Auto,*,Auto,4,Auto">
+
+                <!-- Capture button -->
+                <Button Grid.Column="0"
+                        Content="▶  Capture"
+                        Command="{Binding StartCaptureCommand}"
+                        Classes="action"
+                        ToolTip.Tip="Capture a screen region (Super+Shift+O)" />
+
+                <!-- Continuous mode toggle -->
+                <Button Grid.Column="2"
+                        x:Name="ContinuousBtn"
+                        Content="{Binding ContinuousButtonText}"
+                        Command="{Binding ToggleContinuousModeCommand}"
+                        Classes="action"
+                        ToolTip.Tip="Repeatedly scan the last region at a set interval" />
+
+                <!-- Settings button -->
+                <Button Grid.Column="4"
+                        Content="⚙"
+                        FontSize="14"
+                        Classes="ghost"
+                        Padding="5,2"
+                        ToolTip.Tip="Settings"
+                        Click="OnSettingsClick" />
+
+                <!-- Hide to tray -->
+                <Button Grid.Column="6"
+                        Content="−"
+                        FontSize="16"
+                        Classes="ghost"
+                        Padding="5,2"
+                        ToolTip.Tip="Hide to tray"
+                        Click="OnHideClick" />
+            </Grid>
+        </Border>
+
+        <!-- ── Status bar ─────────────────────────────────────────────────── -->
+        <c:StatusBar DockPanel.Dock="Bottom" />
+
+        <!-- ── Results area ───────────────────────────────────────────────── -->
+        <ScrollViewer DockPanel.Dock="Top"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      IsVisible="{Binding HasResults}">
+            <StackPanel>
+                <Separator Background="{DynamicResource Surface0Brush}" Height="1" Margin="0" />
+                <c:OcrResultControl />
+
+                <Separator Background="{DynamicResource Surface0Brush}" Height="1" Margin="0"
+                           IsVisible="{Binding TokenCards.Count,
+                             Converter={x:Static vm:NonZeroConverter.Instance}}" />
+
+                <c:TokenList Margin="8,4"
+                             IsVisible="{Binding TokenCards.Count,
+                               Converter={x:Static vm:NonZeroConverter.Instance}}" />
+
+                <!-- Clear button -->
+                <Button Content="Clear"
+                        Command="{Binding ClearResultsCommand}"
+                        HorizontalAlignment="Right"
+                        Margin="12,4,12,8"
+                        Padding="12,4"
+                        FontSize="12"
+                        Classes="ghost" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ── Placeholder when idle with no results ──────────────────────── -->
+        <TextBlock DockPanel.Dock="Top"
+                   Text="Select a region to begin"
+                   FontSize="12"
+                   Foreground="{DynamicResource Overlay0Brush}"
+                   HorizontalAlignment="Center"
+                   Margin="0,18"
+                   IsVisible="{Binding !HasResults}" />
+
+    </DockPanel>
+</Window>

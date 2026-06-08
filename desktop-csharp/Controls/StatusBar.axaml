@@ -1,0 +1,60 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:WebOcrDesktop.ViewModels"
+             x:Class="WebOcrDesktop.Controls.StatusBar"
+             x:DataType="vm:MainViewModel">
+
+    <Border Padding="12,8" Background="{DynamicResource Surface0Brush}">
+        <StackPanel Spacing="6">
+
+            <!-- Normal status row -->
+            <Grid ColumnDefinitions="Auto,*">
+                <!-- Spinner: pulsing dot -->
+                <Ellipse Grid.Column="0" Width="10" Height="10"
+                         Fill="{DynamicResource BlueBrush}"
+                         IsVisible="{Binding Status,
+                           Converter={x:Static vm:StatusToBoolConverter.IsBusy}}"
+                         Margin="0,0,10,0"
+                         VerticalAlignment="Center">
+                    <Ellipse.Styles>
+                        <Style Selector="Ellipse">
+                            <Style.Animations>
+                                <Animation Duration="0:0:0.8"
+                                           IterationCount="Infinite"
+                                           PlaybackDirection="Alternate"
+                                           Easing="SineEaseInOut">
+                                    <KeyFrame Cue="0%">
+                                        <Setter Property="Opacity" Value="1" />
+                                    </KeyFrame>
+                                    <KeyFrame Cue="100%">
+                                        <Setter Property="Opacity" Value="0.2" />
+                                    </KeyFrame>
+                                </Animation>
+                            </Style.Animations>
+                        </Style>
+                    </Ellipse.Styles>
+                </Ellipse>
+
+                <!-- Status text -->
+                <TextBlock Grid.Column="1"
+                           Text="{Binding StatusText}"
+                           FontSize="13"
+                           VerticalAlignment="Center"
+                           Foreground="{Binding Status,
+                             Converter={x:Static vm:StatusToColorConverter.Instance}}"
+                           TextTrimming="CharacterEllipsis" />
+            </Grid>
+
+            <!-- Download progress (visible only while model is downloading) -->
+            <StackPanel IsVisible="{Binding IsDownloading}" Spacing="4">
+                <ProgressBar Value="{Binding TesseractProgress}"
+                             Maximum="1"
+                             Height="4"
+                             CornerRadius="2"
+                             Foreground="{DynamicResource TealBrush}"
+                             Background="{DynamicResource Surface1Brush}" />
+            </StackPanel>
+
+        </StackPanel>
+    </Border>
+</UserControl>

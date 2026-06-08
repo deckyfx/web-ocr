@@ -1,0 +1,150 @@
+using System;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Threading.Tasks;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using WebOcrDesktop.Models;
+using WebOcrDesktop.ViewModels;
+
+namespace WebOcrDesktop.Views;
+
+public partial class SettingsWindow : Window
+{
+    public static readonly string[] TranslateEngines  = ["none", "local", "deepl"];
+    public static readonly string[] DictionaryModes   = ["local", "jisho"];
+    public static readonly string[] TesseractLangs    = ["jpn", "jpn_vert", "eng", "chi_sim", "chi_tra", "kor"];
+    public static readonly string[] TesseractQualities = ["fast", "best"];
+
+    public event Action<AppSettings>? SettingsSaved;
+
+    public SettingsWindow()
+    {
+        InitializeComponent();
+    }
+
+    public void LoadSettings(AppSettings settings)
+    {
+        DataContext = new SettingsViewModel(settings);
+        UpdateTabStyles();
+    }
+
+    private void OnServerTabClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel vm) return;
+        vm.OcrMode = "server";
+        UpdateTabStyles();
+    }
+
+    private void OnTesseractTabClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel vm) return;
+        vm.OcrMode = "tesseract";
+        UpdateTabStyles();
+    }
+
+    private void UpdateTabStyles()
+    {
+        if (DataContext is not SettingsViewModel vm) return;
+        var serverBtn = this.FindControl<Button>("ServerTabBtn");
+        var tessBtn   = this.FindControl<Button>("TesseractTabBtn");
+        if (serverBtn is null || tessBtn is null) return;
+
+        if (vm.IsServerMode)
+        {
+            serverBtn.Classes.Set("tab-active", true);  serverBtn.Classes.Set("tab", false);
+            tessBtn.Classes.Set("tab-active", false);   tessBtn.Classes.Set("tab", true);
+        }
+        else
+        {
+            serverBtn.Classes.Set("tab-active", false); serverBtn.Classes.Set("tab", true);
+            tessBtn.Classes.Set("tab-active", true);    tessBtn.Classes.Set("tab", false);
+        }
+    }
+
+    private async void OnTestConnectionClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel vm) return;
+
+        vm.IsTestingConnection = true;
+        vm.ConnectionStatus    = "";
+
+        try
+        {
+            var url = vm.ServerUrl.Trim();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var baseUri))
+            {
+                vm.ConnectionStatus = "✗ Invalid URL";
+                return;
+            }
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            if (!string.IsNullOrWhiteSpace(vm.ApiKey))
+                http.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", vm.ApiKey.Trim());
+
+            var resp = await http.GetFromJsonAsync<HealthResponse>(new Uri(baseUri, "/health"));
+            vm.ConnectionStatus = resp is not null
+                ? $"✓ Connected — server v{resp.Version}"
+                : "✓ OK";
+        }
+        catch (TaskCanceledException)
+        {
+            vm.ConnectionStatus = "✗ Timed out (5 s)";
+        }
+        catch (HttpRequestException ex)
+        {
+            vm.ConnectionStatus = $"✗ {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            vm.ConnectionStatus = $"✗ {ex.GetType().Name}: {ex.Message}";
+        }
+        finally
+        {
+            vm.IsTestingConnection = false;
+        }
+    }
+
+    private async void OnSaveClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel vm) return;
+        try
+        {
+            SettingsSaved?.Invoke(vm.ToSettings());
+            Close();
+        }
+        catch (ArgumentException ex)
+        {
+            var dlg = new Window
+            {
+                Title         = "Invalid Settings",
+                Width         = 360,
+                SizeToContent = SizeToContent.Height,
+                CanResize     = false,
+            };
+            var okBtn = new Button
+            {
+                Content             = "OK",
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                Margin              = new Avalonia.Thickness(16, 0, 16, 16),
+            };
+            okBtn.Click += (_, _) => dlg.Close();
+            dlg.Content = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text         = ex.Message,
+                        Margin       = new Avalonia.Thickness(16),
+                        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    },
+                    okBtn,
+                }
+            };
+            await dlg.ShowDialog(this);
+        }
+    }
+
+    private void OnCancelClick(object? sender, RoutedEventArgs e) => Close();
+}

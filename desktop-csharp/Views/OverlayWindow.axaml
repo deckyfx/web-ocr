@@ -1,0 +1,64 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WebOcrDesktop.ViewModels"
+        x:Class="WebOcrDesktop.Views.OverlayWindow"
+        x:DataType="vm:OverlayViewModel"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        WindowDecorations="None"
+        WindowStartupLocation="Manual"
+        Topmost="True"
+        Cursor="Cross"
+        KeyboardNavigation.TabNavigation="None">
+
+    <Canvas x:Name="OverlayCanvas"
+            Width="{Binding CanvasWidth}"
+            Height="{Binding CanvasHeight}"
+            ClipToBounds="True">
+
+        <!-- Screenshot background — Stretch=Fill scales physical-pixel bitmap to DIP canvas -->
+        <Image x:Name="ScreenshotImage"
+               Width="{Binding CanvasWidth}"
+               Height="{Binding CanvasHeight}"
+               Stretch="Fill" />
+
+        <!-- Full-screen dim overlay -->
+        <Rectangle Width="{Binding CanvasWidth}"
+                   Height="{Binding CanvasHeight}"
+                   Fill="#72000000"
+                   IsHitTestVisible="False" />
+
+        <!-- Selection highlight — shows the selected area lighter -->
+        <Border x:Name="SelectionBorder"
+                IsHitTestVisible="False"
+                BorderBrush="#E5FFFFFF"
+                BorderThickness="2"
+                Background="#29FFFFFF"
+                Canvas.Left="{Binding SelectionRect.X}"
+                Canvas.Top="{Binding SelectionRect.Y}"
+                Width="{Binding SelectionRect.Width}"
+                Height="{Binding SelectionRect.Height}" />
+
+        <!-- Dimension label -->
+        <Border x:Name="DimLabel"
+                IsHitTestVisible="False"
+                Background="#B2000000"
+                CornerRadius="3"
+                Padding="5,2"
+                Canvas.Left="{Binding SelectionRect.Right}"
+                Canvas.Top="{Binding SelectionRect.Bottom}">
+            <TextBlock Text="{Binding DimensionLabel}"
+                       Foreground="White"
+                       FontSize="12"
+                       FontFamily="Consolas,Courier New,monospace" />
+        </Border>
+
+        <!-- Esc hint (shown when selecting) -->
+        <TextBlock Text="Esc to cancel"
+                   Foreground="#AAFFFFFF"
+                   FontSize="13"
+                   Canvas.Left="12"
+                   Canvas.Top="12"
+                   IsHitTestVisible="False" />
+    </Canvas>
+</Window>
