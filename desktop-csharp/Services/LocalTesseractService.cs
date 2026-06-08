@@ -34,11 +34,28 @@ public sealed class LocalTesseractService : IDisposable
     /// Downloads the traineddata file for the given language + quality if not present.
     /// Reports progress via <paramref name="progress"/> as (status text, 0-1 fraction).
     /// </summary>
+    private static readonly System.Collections.Generic.HashSet<string> AllowedQualities =
+        new(System.StringComparer.Ordinal) { "fast", "best" };
+
+    // lang must contain only letters, digits, underscores, or hyphens (no path traversal).
+    private static readonly System.Text.RegularExpressions.Regex LangPattern =
+        new(@"^[a-zA-Z0-9_\-]{1,64}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static void ValidateInputs(string lang, string quality)
+    {
+        if (!AllowedQualities.Contains(quality))
+            throw new ArgumentException($"Invalid quality '{quality}'. Allowed values: fast, best.", nameof(quality));
+        if (!LangPattern.IsMatch(lang))
+            throw new ArgumentException($"Invalid lang '{lang}'. Only letters, digits, '_' and '-' are allowed.", nameof(lang));
+    }
+
     public static async Task DownloadModelAsync(
         string lang, string quality,
         IProgress<(string status, double pct)>? progress = null,
         CancellationToken ct = default)
     {
+        ValidateInputs(lang, quality);
+
         var dir  = TessDataDir(quality);
         Directory.CreateDirectory(dir);
         var dest = Path.Combine(dir, $"{lang}.traineddata");

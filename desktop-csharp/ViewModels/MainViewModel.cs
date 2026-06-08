@@ -223,6 +223,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                 TesseractProgress = 0;
                 OcrText     = text;
                 Translation = null;
+                ElapsedMs   = 0;
                 Tokens      = [];
                 Definitions = [];
             }
@@ -368,6 +369,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 OcrText     = text;
                 Translation = null;
+                ElapsedMs   = 0;
                 Tokens      = [];
                 Definitions = [];
                 OnPropertyChanged(nameof(HasResults));
@@ -402,6 +404,15 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
                     Tokens      = analyze.Tokens;
                     Definitions = analyze.Definitions;
                     ElapsedMs   = analyze.ElapsedMs;
+                });
+            }
+            else
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    Tokens      = [];
+                    Definitions = [];
+                    ElapsedMs   = 0;
                 });
             }
         }
