@@ -25,19 +25,21 @@ public static class BootExtensions
             logger.LogInformation("Database ready at {Path}", config.DatabasePath);
         }
 
-        // ── 3. Download models ────────────────────────────────────────────────
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+        // ── 3. Print download plan ────────────────────────────────────────────
+        PrintDownloadPlan(config);
 
-        // OCR models (Manga-OCR)
+        // ── 4. Download models ────────────────────────────────────────────────
+        using var http = new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(30),
+        };
+        http.DefaultRequestHeaders.Add("User-Agent", "WebOcrServer/1.0");
+
         await DownloadOcrModelsAsync(http, config, logger);
-
-        // Translate models (Opus-MT)
         await DownloadTranslateModelsAsync(http, config, logger);
-
-        // Dictionary (Jitendex)
         await DownloadDictionaryAsync(http, config, logger);
 
-        // ── 4. Initialise services ────────────────────────────────────────────
+        // ── 5. Initialise services ────────────────────────────────────────────
         logger.LogInformation("[Boot] Loading OCR models...");
         var ocr = app.Services.GetRequiredService<OcrEngine>();
         await ocr.InitializeAsync(
@@ -51,7 +53,7 @@ public static class BootExtensions
         await translate.InitializeAsync(
             Path.Combine(config.TranslateModelsDir, "encoder_model.onnx"),
             Path.Combine(config.TranslateModelsDir, "decoder_model.onnx"),
-            Path.Combine(config.TranslateModelsDir, "tokenizer.json"));
+            Path.Combine(config.TranslateModelsDir, "source.spm"));
         logger.LogInformation("[Boot] Translate service ready.");
 
         // Dictionary extraction runs in background to avoid blocking startup
@@ -64,15 +66,54 @@ public static class BootExtensions
         logger.LogInformation("[Boot] Server is ready.");
     }
 
+    // ── Download plan summary ─────────────────────────────────────────────────
+
+    private static void PrintDownloadPlan(AppConfig config)
+    {
+        var ocrFiles       = new[] { "encoder_model.onnx", "decoder_model.onnx", "vocab.txt" };
+        var translateFiles = new[] { "encoder_model.onnx", "decoder_model.onnx", "source.spm" };
+        var dictFile       = Path.Combine(config.DictDir, "jitendex-yomitan.zip");
+
+        bool anyMissing = ocrFiles.Any(f => !File.Exists(Path.Combine(config.OcrModelsDir, f)))
+                       || translateFiles.Any(f => !File.Exists(Path.Combine(config.TranslateModelsDir, f)))
+                       || !File.Exists(dictFile);
+
+        if (!anyMissing) return;
+
+        Console.WriteLine();
+        Console.WriteLine("[Boot] ─── Models to download ─────────────────────────────────────────────");
+        Console.WriteLine($"[Boot]   Root: {Path.GetDirectoryName(config.OcrModelsDir)}");
+        Console.WriteLine();
+
+        foreach (var f in ocrFiles)
+        {
+            var path = Path.Combine(config.OcrModelsDir, f);
+            var mark = File.Exists(path) ? "✓" : "↓";
+            Console.WriteLine($"[Boot]   {mark} OCR/{f,-30}  {path}");
+        }
+        foreach (var f in translateFiles)
+        {
+            var path = Path.Combine(config.TranslateModelsDir, f);
+            var mark = File.Exists(path) ? "✓" : "↓";
+            Console.WriteLine($"[Boot]   {mark} Translate/{f,-26}  {path}");
+        }
+        {
+            var mark = File.Exists(dictFile) ? "✓" : "↓";
+            Console.WriteLine($"[Boot]   {mark} Dict/jitendex-yomitan.zip             {dictFile}");
+        }
+        Console.WriteLine("[Boot] ─────────────────────────────────────────────────────────────────────");
+        Console.WriteLine();
+    }
+
     // ── Model download helpers ────────────────────────────────────────────────
 
-    private static readonly string HfBase = "https://huggingface.co";
+    private const string HfBase = "https://huggingface.co";
 
     private static async Task DownloadOcrModelsAsync(
         HttpClient http, AppConfig config, ILogger logger)
     {
-        const string repo = "mayocream/manga-ocr-onnx";
-        string[] files   = ["encoder_model.onnx", "decoder_model.onnx", "vocab.txt"];
+        const string repo  = "mayocream/manga-ocr-onnx";
+        string[]     files = ["encoder_model.onnx", "decoder_model.onnx", "vocab.txt"];
 
         foreach (var file in files)
         {
@@ -89,7 +130,7 @@ public static class BootExtensions
     {
         const string repo = "Xenova/opus-mt-ja-en";
 
-        // Xenova ONNX files live under the onnx/ subfolder on HuggingFace
+        // ONNX files are under the onnx/ subfolder; spm and tokenizer are at root
         string[] onnxFiles = ["encoder_model.onnx", "decoder_model.onnx"];
         foreach (var file in onnxFiles)
         {
@@ -100,12 +141,11 @@ public static class BootExtensions
                 label:    $"Translate/{file}");
         }
 
-        // tokenizer.json is at the repo root
         await ModelDownloader.EnsureAsync(
             http,
-            url:      $"{HfBase}/{repo}/resolve/main/tokenizer.json",
-            destPath: Path.Combine(config.TranslateModelsDir, "tokenizer.json"),
-            label:    "Translate/tokenizer.json");
+            url:      $"{HfBase}/{repo}/resolve/main/source.spm",
+            destPath: Path.Combine(config.TranslateModelsDir, "source.spm"),
+            label:    "Translate/source.spm");
     }
 
     private static async Task DownloadDictionaryAsync(
@@ -117,10 +157,10 @@ public static class BootExtensions
         logger.LogInformation("[Boot] Resolving Jitendex release URL...");
         try
         {
-            var url = await ModelDownloader.GetGitHubReleaseAssetUrlAsync(
-                http, "stephenmk", "Jitendex", "jitendex-yomitan.zip");
+            var url = await ModelDownloader.FindGitHubReleaseAssetAsync(
+                http, "stephenmk", "Jitendex", "yomitan");
 
-            await ModelDownloader.EnsureAsync(http, url, destPath, "jitendex-yomitan.zip");
+            await ModelDownloader.EnsureAsync(http, url, destPath, "Dict/jitendex-yomitan.zip");
         }
         catch (Exception ex)
         {

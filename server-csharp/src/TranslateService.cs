@@ -2,7 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
-using Microsoft.ML.Tokenizers;  // BpeTokenizer, Tokenizer
+using Microsoft.ML.Tokenizers;
 
 namespace WebOcrServer;
 
@@ -14,11 +14,10 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
 {
     private InferenceSession? _encoder;
     private InferenceSession? _decoder;
-    private BpeTokenizer?     _srcTokenizer;  // input (Japanese)
-    private BpeTokenizer?     _tgtTokenizer;  // output (English)
+    private LlamaTokenizer?   _srcTokenizer;  // SentencePiece (source.spm)
+    private LlamaTokenizer?   _tgtTokenizer;  // same model handles both sides
 
     // MarianMT special token IDs for Xenova/opus-mt-ja-en
-    // NOTE: verify these against the model's tokenizer_config.json on first run
     private const int DecoderStartToken = 60715; // PAD / decoder_start_token_id
     private const int EosToken          = 0;
     private const int MaxLength         = 512;
@@ -29,15 +28,18 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
     public async Task InitializeAsync(
         string encoderPath,
         string decoderPath,
-        string tokenizerJsonPath,
+        string srcSpmPath,
         CancellationToken ct = default)
     {
         _encoder = await Task.Run(() => new InferenceSession(encoderPath), ct);
         _decoder = await Task.Run(() => new InferenceSession(decoderPath), ct);
 
-        // Parse HuggingFace tokenizer.json and extract vocab + merges for BpeTokenizer
-        _srcTokenizer = await Task.Run(() => LoadBpeFromTokenizerJson(tokenizerJsonPath), ct);
-        // MarianMT uses the same tokenizer for both source and target
+        // LlamaTokenizer reads any SentencePiece .model/.spm file (BPE or Unigram)
+        await using var spmStream = File.OpenRead(srcSpmPath);
+        _srcTokenizer = LlamaTokenizer.Create(spmStream,
+            addBeginOfSentence: false,
+            addEndOfSentence:   false,
+            specialTokens:      null);
         _tgtTokenizer = _srcTokenizer;
 
         Console.WriteLine("[Translate] Opus-MT sessions loaded.");
@@ -171,38 +173,6 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
             logger.LogError(ex, "DeepL translation failed");
             return null;
         }
-    }
-
-    // ── Tokenizer loading ─────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Parses a HuggingFace tokenizer.json (BPE model) and builds a BpeTokenizer.
-    /// Extracts model.vocab → JSON stream and model.merges → text stream.
-    /// </summary>
-    private static BpeTokenizer LoadBpeFromTokenizerJson(string tokenizerJsonPath)
-    {
-        using var doc   = JsonDocument.Parse(File.ReadAllBytes(tokenizerJsonPath));
-        var       model = doc.RootElement.GetProperty("model");
-
-        // Build vocab stream: {"token": id, ...}
-        using var vocabMs = new MemoryStream();
-        using (var w = new Utf8JsonWriter(vocabMs, new JsonWriterOptions { SkipValidation = true }))
-            model.GetProperty("vocab").WriteTo(w);
-
-        // Build merges stream: "#version: 0.2\na b\nc d\n..."
-        using var mergesMs = new MemoryStream();
-        using (var sw = new StreamWriter(mergesMs, System.Text.Encoding.UTF8, bufferSize: 4096, leaveOpen: true))
-        {
-            sw.WriteLine("#version: 0.2");
-            foreach (var merge in model.GetProperty("merges").EnumerateArray())
-                sw.WriteLine(merge.GetString() ?? "");
-        }
-
-        vocabMs.Position  = 0;
-        mergesMs.Position = 0;
-
-        // BpeTokenizer.Create reads both streams synchronously and owns its own state after
-        return BpeTokenizer.Create(vocabMs, mergesMs);
     }
 
     public void Dispose()

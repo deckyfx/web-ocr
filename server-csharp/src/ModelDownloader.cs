@@ -87,16 +87,18 @@ public static class ModelDownloader
     };
 
     /// <summary>
-    /// Resolves the browser_download_url for an asset name from a GitHub release.
+    /// Scans all GitHub releases (newest first) and returns the browser_download_url
+    /// for the first asset whose name contains <paramref name="nameContains"/> (case-insensitive).
+    /// Useful when release asset names change between versions or when latest has no assets.
     /// </summary>
-    public static async Task<string> GetGitHubReleaseAssetUrlAsync(
+    public static async Task<string> FindGitHubReleaseAssetAsync(
         HttpClient http,
         string     owner,
         string     repo,
-        string     assetName,
+        string     nameContains,
         CancellationToken ct = default)
     {
-        var apiUrl = $"https://api.github.com/repos/{owner}/{repo}/releases/latest";
+        var apiUrl = $"https://api.github.com/repos/{owner}/{repo}/releases?per_page=20";
         using var req = new HttpRequestMessage(HttpMethod.Get, apiUrl);
         req.Headers.Add("User-Agent", "WebOcrServer/1.0");
 
@@ -106,13 +108,23 @@ public static class ModelDownloader
         using var doc = await System.Text.Json.JsonDocument.ParseAsync(
             await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
 
-        foreach (var asset in doc.RootElement.GetProperty("assets").EnumerateArray())
+        foreach (var release in doc.RootElement.EnumerateArray())
         {
-            if (asset.GetProperty("name").GetString() == assetName)
-                return asset.GetProperty("browser_download_url").GetString()
-                       ?? throw new InvalidOperationException($"browser_download_url missing for {assetName}");
+            var tag = release.GetProperty("tag_name").GetString() ?? "?";
+            foreach (var asset in release.GetProperty("assets").EnumerateArray())
+            {
+                var name = asset.GetProperty("name").GetString() ?? "";
+                if (name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
+                {
+                    var url = asset.GetProperty("browser_download_url").GetString()
+                              ?? throw new InvalidOperationException($"browser_download_url missing for {name}");
+                    Console.WriteLine($"[Boot]   Found asset in release {tag}: {name}");
+                    return url;
+                }
+            }
         }
 
-        throw new InvalidOperationException($"Asset '{assetName}' not found in {owner}/{repo} latest release.");
+        throw new InvalidOperationException(
+            $"No asset containing '{nameContains}' found in any of the last 20 releases of {owner}/{repo}.");
     }
 }
