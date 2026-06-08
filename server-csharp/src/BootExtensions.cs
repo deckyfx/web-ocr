@@ -53,7 +53,7 @@ public static class BootExtensions
         await translate.InitializeAsync(
             Path.Combine(config.TranslateModelsDir, "encoder_model.onnx"),
             Path.Combine(config.TranslateModelsDir, "decoder_model.onnx"),
-            Path.Combine(config.TranslateModelsDir, "source.spm"));
+            Path.Combine(config.TranslateModelsDir, "tokenizer.json"));
         logger.LogInformation("[Boot] Translate service ready.");
 
         // Dictionary extraction runs in background to avoid blocking startup
@@ -71,7 +71,7 @@ public static class BootExtensions
     private static void PrintDownloadPlan(AppConfig config)
     {
         var ocrFiles       = new[] { "encoder_model.onnx", "decoder_model.onnx", "vocab.txt" };
-        var translateFiles = new[] { "encoder_model.onnx", "decoder_model.onnx", "source.spm" };
+        var translateFiles = new[] { "encoder_model.onnx", "decoder_model.onnx", "tokenizer.json" };
         var dictFile       = Path.Combine(config.DictDir, "jitendex-yomitan.zip");
 
         bool anyMissing = ocrFiles.Any(f => !File.Exists(Path.Combine(config.OcrModelsDir, f)))
@@ -143,9 +143,9 @@ public static class BootExtensions
 
         await ModelDownloader.EnsureAsync(
             http,
-            url:      $"{HfBase}/{repo}/resolve/main/source.spm",
-            destPath: Path.Combine(config.TranslateModelsDir, "source.spm"),
-            label:    "Translate/source.spm");
+            url:      $"{HfBase}/{repo}/resolve/main/tokenizer.json",
+            destPath: Path.Combine(config.TranslateModelsDir, "tokenizer.json"),
+            label:    "Translate/tokenizer.json");
     }
 
     private static async Task DownloadDictionaryAsync(

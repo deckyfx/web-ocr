@@ -2,7 +2,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
-using Microsoft.ML.Tokenizers;
 
 namespace WebOcrServer;
 
@@ -12,10 +11,10 @@ namespace WebOcrServer;
 /// </summary>
 public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<TranslateService> logger) : IDisposable
 {
-    private InferenceSession? _encoder;
-    private InferenceSession? _decoder;
-    private LlamaTokenizer?   _srcTokenizer;  // SentencePiece (source.spm)
-    private LlamaTokenizer?   _tgtTokenizer;  // same model handles both sides
+    private InferenceSession?  _encoder;
+    private InferenceSession?  _decoder;
+    private UnigramTokenizer?  _srcTokenizer;  // Unigram SentencePiece (tokenizer.json)
+    private UnigramTokenizer?  _tgtTokenizer;  // same model encodes both sides
 
     // MarianMT special token IDs for Xenova/opus-mt-ja-en
     private const int DecoderStartToken = 60715; // PAD / decoder_start_token_id
@@ -28,18 +27,14 @@ public sealed class TranslateService(AppConfig config, HttpClient http, ILogger<
     public async Task InitializeAsync(
         string encoderPath,
         string decoderPath,
-        string srcSpmPath,
+        string tokenizerJsonPath,
         CancellationToken ct = default)
     {
         _encoder = await Task.Run(() => new InferenceSession(encoderPath), ct);
         _decoder = await Task.Run(() => new InferenceSession(decoderPath), ct);
 
-        // LlamaTokenizer reads any SentencePiece .model/.spm file (BPE or Unigram)
-        await using var spmStream = File.OpenRead(srcSpmPath);
-        _srcTokenizer = LlamaTokenizer.Create(spmStream,
-            addBeginOfSentence: false,
-            addEndOfSentence:   false,
-            specialTokens:      null);
+        // UnigramTokenizer reads HuggingFace tokenizer.json (model.type == "Unigram")
+        _srcTokenizer = await Task.Run(() => UnigramTokenizer.FromJson(tokenizerJsonPath), ct);
         _tgtTokenizer = _srcTokenizer;
 
         Console.WriteLine("[Translate] Opus-MT sessions loaded.");

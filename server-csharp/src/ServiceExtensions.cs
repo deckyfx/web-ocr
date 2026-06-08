@@ -42,6 +42,9 @@ public static class ServiceExtensions
         // EF Core scoped DbContext (SQLite)
         builder.Services.AddDbContext<AppDbContext>(o =>
             o.UseSqlite($"Data Source={config.DatabasePath}"));
+
+        // Blazor static SSR (index page only — no interactive render mode)
+        builder.Services.AddRazorComponents();
     }
 
     public static WebApplication MapWebOcrRoutes(this WebApplication app)

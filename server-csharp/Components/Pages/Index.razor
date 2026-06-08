@@ -1,0 +1,16 @@
+@page "/"
+
+<h1>Web OCR Server <span class="badge">running</span></h1>
+
+<h2>API Endpoints</h2>
+<ul>
+    <li><code>GET  /health</code> — server status &amp; config</li>
+    <li><code>POST /ocr</code> — OCR an image (base64) → Japanese text</li>
+    <li><code>POST /translate</code> — translate Japanese → English (local or DeepL)</li>
+    <li><code>POST /analyze</code> — tokenize &amp; look up definitions</li>
+</ul>
+
+<h2>Quick test</h2>
+<ul>
+    <li><a href="/health">/health</a></li>
+</ul>
