@@ -88,16 +88,24 @@ public static class BootExtensions
         HttpClient http, AppConfig config, ILogger logger)
     {
         const string repo = "Xenova/opus-mt-ja-en";
-        string[] files   = ["encoder_model.onnx", "decoder_model.onnx", "tokenizer.json"];
 
-        foreach (var file in files)
+        // Xenova ONNX files live under the onnx/ subfolder on HuggingFace
+        string[] onnxFiles = ["encoder_model.onnx", "decoder_model.onnx"];
+        foreach (var file in onnxFiles)
         {
             await ModelDownloader.EnsureAsync(
                 http,
-                url:      $"{HfBase}/{repo}/resolve/main/{file}",
+                url:      $"{HfBase}/{repo}/resolve/main/onnx/{file}",
                 destPath: Path.Combine(config.TranslateModelsDir, file),
                 label:    $"Translate/{file}");
         }
+
+        // tokenizer.json is at the repo root
+        await ModelDownloader.EnsureAsync(
+            http,
+            url:      $"{HfBase}/{repo}/resolve/main/tokenizer.json",
+            destPath: Path.Combine(config.TranslateModelsDir, "tokenizer.json"),
+            label:    "Translate/tokenizer.json");
     }
 
     private static async Task DownloadDictionaryAsync(

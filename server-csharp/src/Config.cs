@@ -13,8 +13,7 @@ public sealed record AppConfig(
 
     public static AppConfig FromEnvironment()
     {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var root    = Path.Combine(appData, "WebOcrServer");
+        var root = Path.Combine(Directory.GetCurrentDirectory(), "data");
 
         return new AppConfig(
             Port:              int.TryParse(Env("PORT"), out var p) ? p : 3579,
