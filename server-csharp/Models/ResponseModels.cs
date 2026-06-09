@@ -1,0 +1,49 @@
+namespace WebOcrServer;
+
+public record OcrResponse(
+    string Text,
+    string? Translation,
+    long ElapsedMs
+);
+
+public record TranslateResponse(
+    string Translation,
+    long ElapsedMs
+);
+
+public record AnalyzeResponse(
+    string Original,
+    string Sanitized,
+    List<string> Sentences,
+    List<TokenInfo> Tokens,
+    Definition?[] Definitions,
+    long ElapsedMs
+);
+
+public record TokenInfo(
+    string Surface,
+    string Pos,
+    string PosDetail,
+    string ConjugationType,
+    string ConjugationForm,
+    string DictionaryForm,
+    string Reading,
+    string Romaji,
+    bool IsUnknown
+);
+
+public record Definition(
+    string Word,
+    string Reading,
+    bool IsCommon,
+    string? Jlpt,
+    List<string> Glosses
+);
+
+public record HealthResponse(
+    string Status,
+    string Version,
+    string OcrModelsDir,
+    string TranslateModelsDir,
+    bool DeeplAvailable
+);

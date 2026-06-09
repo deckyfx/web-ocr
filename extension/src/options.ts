@@ -180,6 +180,7 @@ clientTranslationServerSel.addEventListener("change", () => {
 
 const serverHints: Record<ServerTranslation, HTMLElement | null> = {
   none:  document.getElementById("serverHint-none"),
+  auto:  document.getElementById("serverHint-auto"),
   local: document.getElementById("serverHint-local"),
   deepl: document.getElementById("serverHint-deepl"),
 };

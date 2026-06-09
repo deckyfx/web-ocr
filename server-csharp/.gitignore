@@ -1,0 +1,6 @@
+node_modules/
+bun.lock
+wwwroot/js/react-app.js
+wwwroot/js/react-app.css
+data/
+.env
