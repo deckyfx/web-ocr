@@ -61,11 +61,21 @@ interface AnalyzeToken {
   part_of_speech: string | null;
 }
 
+interface Definition {
+  word:      string;
+  reading:   string;
+  is_common: boolean;
+  jlpt:      string | null;
+  glosses:   string[];
+}
+
 interface AnalyzeResponse {
-  original:   string;
-  sanitized:  string;
-  tokens:     AnalyzeToken[];
-  elapsed_ms: number;
+  original:    string;
+  sanitized:   string;
+  sentences:   string[];
+  tokens:      AnalyzeToken[];
+  definitions: (Definition | null)[];
+  elapsed_ms:  number;
 }
 
 // ─── Validation ──────────────────────────────────────────────────────────────

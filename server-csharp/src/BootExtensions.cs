@@ -24,7 +24,6 @@ public sealed class BootBackgroundService(
             // ── 1. Scaffold directories ───────────────────────────────────────
             Directory.CreateDirectory(config.OcrModelsDir);
             Directory.CreateDirectory(config.TranslateModelsDir);
-            Directory.CreateDirectory(Path.Combine(config.DictDir, "extracted"));
             var dbDir = Path.GetDirectoryName(config.DatabasePath);
             if (!string.IsNullOrEmpty(dbDir)) Directory.CreateDirectory(dbDir);
 
