@@ -1,9 +1,10 @@
 # ── C# / .NET ────────────────────────────────────────────────────────────────
-desktop-csharp/bin/
-desktop-csharp/obj/
-server-csharp/bin/
-server-csharp/obj/
-desktop-csharp/publish/
+desktop/bin/
+desktop/obj/
+desktop/publish/
+server/bin/
+server/obj/
+server/publish/
 *.user
 
 # ── Rust ──────────────────────────────────────────────────────────────────────
@@ -35,5 +36,5 @@ Thumbs.db
 # ── etc ────────────────────────────────────────────────────────────────────────
 server/server
 mighty-wiggling-cascade.md
-server-csharp/data/
-server-csharp/result.txt
+server/data/
+server/result.txt
