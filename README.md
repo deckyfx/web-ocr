@@ -2,7 +2,7 @@
 
 > Forked from [brian-girko/image-reader](https://github.com/brian-girko/image-reader) — original OCR Image Reader extension by Brian Girko, licensed under MPL 2.0.
 
-A browser extension (MV3) that lets you select any region on screen and extract text via OCR. Supports two engines: **Tesseract.js** (runs entirely in-browser, no server needed) or a **self-hosted Rust server** for GPU-accelerated OCR with optional translation.
+A browser extension (MV3) that lets you select any region on screen and extract text via OCR. Supports two engines: **Tesseract.js** (runs entirely in-browser, no server needed) or a **self-hosted C# server** for GPU-accelerated OCR with optional translation.
 
 ## Features
 
@@ -18,8 +18,9 @@ A browser extension (MV3) that lets you select any region on screen and extract 
 
 ```
 extension/     Browser extension (TypeScript + Bun)
-server/        Self-hosted OCR + translation server (Rust + ONNX)
-desktop/       Desktop companion app (Dioxus)
+server/        Self-hosted OCR + translation server (ASP.NET Core + ONNX)
+desktop/       Desktop companion app (Avalonia / C#)
+WebOcr.slnx    .NET 10 solution file
 ```
 
 ## Extension Setup
@@ -35,7 +36,7 @@ desktop/       Desktop companion app (Dioxus)
 cd extension
 bun install
 bun run build        # production — bumps patch version, outputs to dist/
-bun run build:dev    # dev — skips version bump archive
+bun run build:dev    # dev — skips version bump / archive
 ```
 
 Load the extension in Chrome: `chrome://extensions` → **Load unpacked** → select `extension/dist/`
@@ -46,15 +47,13 @@ No server needed. Language data is downloaded on first use from `tessdata.projec
 
 Supported languages include Japanese (`jpn`), Japanese vertical (`jpn_vert`), English (`eng`), Chinese Simplified/Traditional, Korean, and more — selectable in the settings page.
 
-Go to the extension settings, choose **Tesseract** tab, select a language, click **Check Language** to verify the traineddata is available, then save.
-
 ### Self-hosted Server Engine
 
-Requires running the Rust server locally.
+Requires running the C# server locally. On first run it automatically downloads all required ONNX models (~500 MB) and the Jitendex dictionary.
 
 ```bash
 cd server
-cargo run --release
+dotnet run
 ```
 
 Default address: `http://localhost:3579`
@@ -63,10 +62,24 @@ In extension settings, choose the **Remote Server** tab, enter the server URL, c
 
 ## Server Features
 
-- ONNX-based OCR (faster than Tesseract on CPU/GPU)
-- Optional local translation (Jitendex dictionary)
-- Optional DeepL translation (requires API key)
-- `/health` endpoint reports version and capabilities
+- ONNX-based OCR via Manga-OCR (`mayocream/manga-ocr-onnx`)
+- Local Japanese→English translation via Opus-MT (`Xenova/opus-mt-ja-en`)
+- Jitendex dictionary with Jisho HTTP fallback
+- NMeCab morphological tokenization
+- Optional DeepL translation (requires `DEEPL_API_KEY`)
+- `/health` endpoint reports readiness (`starting` / `ok` / `degraded`)
+- Background inference queue — HTTP server accepts requests immediately while models load
+
+## Desktop App
+
+The Avalonia desktop companion runs in the system tray and provides a global hotkey (`Super+Shift+O`) to capture a screen region and analyze it without a browser.
+
+```bash
+cd desktop
+dotnet run
+```
+
+The app sends captured regions to the running server at `http://localhost:3579` (configurable in settings).
 
 ## Version
 

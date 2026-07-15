@@ -8,10 +8,14 @@ public static class TranslateRoutes
     {
         app.MapPost("/translate", async (
             TranslateRequest       req,
+            BootState              boot,
             InferenceQueue         queue,
             IServiceScopeFactory   scopeFactory,
             ILogger<TranslateService> logger) =>
         {
+            if (!boot.TranslateReady)
+                return Results.Json(new { error = "Translate model not ready" }, statusCode: 503);
+
             if (string.IsNullOrWhiteSpace(req.Text))
                 return Results.BadRequest(new { error = "text is required" });
 

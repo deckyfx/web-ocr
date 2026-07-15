@@ -40,10 +40,13 @@ public record Definition(
     List<string> Glosses
 );
 
+public record ModelStatus(string Name, bool Ready, bool Enabled = true);
+
 public record HealthResponse(
     string Status,
     string Version,
     string OcrModelsDir,
     string TranslateModelsDir,
-    bool DeeplAvailable
+    bool DeeplAvailable,
+    Dictionary<string, ModelStatus> Models
 );

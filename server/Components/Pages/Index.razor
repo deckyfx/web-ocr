@@ -3,7 +3,7 @@
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
-@* React mounts into this div; Blazor manages its lifetime via JS Interop *@
+@* SolidJS mounts into this div; Blazor manages its lifetime via JS Interop *@
 <div @ref="_root"></div>
 
 @code {
@@ -12,18 +12,18 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
-            await JS.InvokeVoidAsync("ReactBridge.mount", _root);
+            await JS.InvokeVoidAsync("AppBridge.mount", _root);
     }
 
     public async ValueTask DisposeAsync()
     {
         try
         {
-            await JS.InvokeVoidAsync("ReactBridge.unmount", _root);
+            await JS.InvokeVoidAsync("AppBridge.unmount", _root);
         }
         catch (JSDisconnectedException)
         {
-            // Circuit closed (page navigated away) — React already GC'd
+            // Circuit closed (page navigated away) — SolidJS already disposed
         }
     }
 }

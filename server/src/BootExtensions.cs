@@ -11,6 +11,7 @@ namespace WebOcrServer;
 public sealed class BootBackgroundService(
     AppConfig            config,
     BootState            bootState,
+    ModelSettingsStore   modelSettings,
     OcrEngine            ocr,
     TranslateService     translate,
     DictionaryService    dict,
@@ -21,13 +22,21 @@ public sealed class BootBackgroundService(
     {
         try
         {
-            // ── 1. Scaffold directories ───────────────────────────────────────
-            Directory.CreateDirectory(config.OcrModelsDir);
-            Directory.CreateDirectory(config.TranslateModelsDir);
+            var ms = modelSettings.Current;
+
+            // ── 1. Mirror enabled flags into BootState ────────────────────────
+            bootState.InpaintEnabled = ms.Inpaint.Enabled;
+            bootState.BubbleEnabled  = ms.Bubble.Enabled;
+
+            // ── 2. Scaffold directories ───────────────────────────────────────
+            Directory.CreateDirectory(ms.Ocr.Dir);
+            Directory.CreateDirectory(ms.Translate.Dir);
+            if (ms.Inpaint.Enabled) Directory.CreateDirectory(ms.Inpaint.Dir);
+            if (ms.Bubble.Enabled)  Directory.CreateDirectory(ms.Bubble.Dir);
             var dbDir = Path.GetDirectoryName(config.DatabasePath);
             if (!string.IsNullOrEmpty(dbDir)) Directory.CreateDirectory(dbDir);
 
-            // ── 2. Bootstrap database ─────────────────────────────────────────
+            // ── 3. Bootstrap database ─────────────────────────────────────────
             await using (var scope = scopeFactory.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -35,33 +44,59 @@ public sealed class BootBackgroundService(
                 logger.LogInformation("Database ready at {Path}", config.DatabasePath);
             }
 
-            // ── 3. Print download plan ────────────────────────────────────────
-            PrintDownloadPlan(config);
+            // ── 4. Print download plan ────────────────────────────────────────
+            PrintDownloadPlan(ms, config);
 
-            // ── 4. Download models ────────────────────────────────────────────
+            // ── 5. Download models ────────────────────────────────────────────
             using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
             http.DefaultRequestHeaders.Add("User-Agent", "WebOcrServer/1.0");
 
-            await DownloadOcrModelsAsync(http, config, logger, ct);
-            await DownloadTranslateModelsAsync(http, config, logger, ct);
+            await DownloadHfModelAsync(http, ms.Ocr,       "OCR",       logger, ct);
+            await DownloadHfModelAsync(http, ms.Translate,  "Translate", logger, ct);
+            await DownloadHfModelAsync(http, ms.Inpaint,    "Inpaint",   logger, ct);
+            await DownloadHfModelAsync(http, ms.Bubble,     "Bubble",    logger, ct);
             await DownloadDictionaryAsync(http, config, logger, ct);
 
-            // ── 5. Initialise services ────────────────────────────────────────
-            logger.LogInformation("[Boot] Loading OCR models...");
-            await ocr.InitializeAsync(
-                Path.Combine(config.OcrModelsDir, "encoder_model.onnx"),
-                Path.Combine(config.OcrModelsDir, "decoder_model.onnx"),
-                Path.Combine(config.OcrModelsDir, "vocab.txt"));
-            logger.LogInformation("[Boot] OCR engine ready.");
+            // ── 6. Initialise core services ───────────────────────────────────
+            if (ms.Ocr.Enabled)
+            {
+                logger.LogInformation("[Boot] Loading OCR models...");
+                await ocr.InitializeAsync(
+                    Path.Combine(ms.Ocr.Dir, "encoder_model.onnx"),
+                    Path.Combine(ms.Ocr.Dir, "decoder_model.onnx"),
+                    Path.Combine(ms.Ocr.Dir, "vocab.txt"));
+                bootState.OcrReady = true;
+                logger.LogInformation("[Boot] OCR engine ready.");
+            }
 
-            logger.LogInformation("[Boot] Loading Translate models...");
-            await translate.InitializeAsync(
-                Path.Combine(config.TranslateModelsDir, "encoder_model.onnx"),
-                Path.Combine(config.TranslateModelsDir, "decoder_model.onnx"),
-                Path.Combine(config.TranslateModelsDir, "tokenizer.json"), ct);
-            logger.LogInformation("[Boot] Translate service ready.");
+            if (ms.Translate.Enabled)
+            {
+                logger.LogInformation("[Boot] Loading Translate models...");
+                await translate.InitializeAsync(
+                    Path.Combine(ms.Translate.Dir, "encoder_model.onnx"),
+                    Path.Combine(ms.Translate.Dir, "decoder_model.onnx"),
+                    Path.Combine(ms.Translate.Dir, "tokenizer.json"), ct);
+                bootState.TranslateReady = true;
+                logger.LogInformation("[Boot] Translate service ready.");
+            }
 
-            // Dictionary extraction — await completion so readiness reflects actual settlement
+            // ── 7. Initialise optional services ───────────────────────────────
+
+            if (ms.Inpaint.ShouldDownload)
+            {
+                logger.LogInformation("[Boot] Inpaint model downloaded; service init pending (not yet wired).");
+                // TODO: initialise InpaintService when implemented
+                bootState.InpaintReady = true;
+            }
+
+            if (ms.Bubble.ShouldDownload)
+            {
+                logger.LogInformation("[Boot] Bubble-detection model downloaded; service init pending (not yet wired).");
+                // TODO: initialise BubbleService when implemented
+                bootState.BubbleReady = true;
+            }
+
+            // ── 8. Dictionary (non-fatal) ─────────────────────────────────────
             logger.LogInformation("[Boot] Extracting dictionary...");
             try
             {
@@ -74,7 +109,6 @@ public sealed class BootBackgroundService(
                 logger.LogWarning(ex, "[Boot] Dictionary init failed — server will operate in degraded mode.");
             }
 
-            // Signal readiness — /health returns "ok" or "degraded" from this point on
             bootState.IsReady = true;
             logger.LogInformation("[Boot] Server is ready.");
         }
@@ -85,77 +119,33 @@ public sealed class BootBackgroundService(
         catch (Exception ex)
         {
             logger.LogCritical(ex, "[Boot] Startup failed — server cannot serve requests.");
-            throw; // causes the host to stop
+            throw;
         }
     }
 
-    // ── Download plan summary ─────────────────────────────────────────────────
-
-    private static void PrintDownloadPlan(AppConfig cfg)
-    {
-        var ocrFiles       = new[] { "encoder_model.onnx", "decoder_model.onnx", "vocab.txt" };
-        var translateFiles = new[] { "encoder_model.onnx", "decoder_model.onnx", "tokenizer.json" };
-        var dictFile       = Path.Combine(cfg.DictDir, "jitendex-yomitan.zip");
-
-        bool anyMissing = ocrFiles.Any(f => !File.Exists(Path.Combine(cfg.OcrModelsDir, f)))
-                       || translateFiles.Any(f => !File.Exists(Path.Combine(cfg.TranslateModelsDir, f)))
-                       || !File.Exists(dictFile);
-
-        if (!anyMissing) return;
-
-        Console.WriteLine();
-        Console.WriteLine("[Boot] ─── Models to download ─────────────────────────────────────────────");
-        Console.WriteLine($"[Boot]   Root: {Path.GetDirectoryName(cfg.OcrModelsDir)}");
-        Console.WriteLine();
-
-        foreach (var f in ocrFiles)
-        {
-            var path = Path.Combine(cfg.OcrModelsDir, f);
-            Console.WriteLine($"[Boot]   {(File.Exists(path) ? "✓" : "↓")} OCR/{f,-30}  {path}");
-        }
-        foreach (var f in translateFiles)
-        {
-            var path = Path.Combine(cfg.TranslateModelsDir, f);
-            Console.WriteLine($"[Boot]   {(File.Exists(path) ? "✓" : "↓")} Translate/{f,-26}  {path}");
-        }
-        Console.WriteLine($"[Boot]   {(File.Exists(dictFile) ? "✓" : "↓")} Dict/jitendex-yomitan.zip             {dictFile}");
-        Console.WriteLine("[Boot] ─────────────────────────────────────────────────────────────────────");
-        Console.WriteLine();
-    }
-
-    // ── Model download helpers ────────────────────────────────────────────────
+    // ── Download helpers ──────────────────────────────────────────────────────
 
     private const string HfBase = "https://huggingface.co";
 
-    private static async Task DownloadOcrModelsAsync(
-        HttpClient http, AppConfig cfg, ILogger logger, CancellationToken ct)
+    /// <summary>
+    /// Download all files listed in <paramref name="entry"/> from HuggingFace.
+    /// Files with a subdirectory prefix in the URL (e.g. "onnx/encoder_model.onnx") are stored
+    /// flat inside <see cref="ModelEntry.Dir"/> using only the filename.
+    /// Skips entirely when <see cref="ModelEntry.ShouldDownload"/> is false.
+    /// </summary>
+    private static async Task DownloadHfModelAsync(
+        HttpClient http, ModelEntry entry, string label, ILogger logger, CancellationToken ct)
     {
-        const string repo  = "mayocream/manga-ocr-onnx";
-        string[]     files = ["encoder_model.onnx", "decoder_model.onnx", "vocab.txt"];
-        foreach (var file in files)
-            await ModelDownloader.EnsureAsync(
-                http,
-                url:      $"{HfBase}/{repo}/resolve/main/{file}",
-                destPath: Path.Combine(cfg.OcrModelsDir, file),
-                label:    $"OCR/{file}", ct: ct);
-    }
+        if (!entry.ShouldDownload) return;
 
-    private static async Task DownloadTranslateModelsAsync(
-        HttpClient http, AppConfig cfg, ILogger logger, CancellationToken ct)
-    {
-        const string repo = "Xenova/opus-mt-ja-en";
-        foreach (var file in new[] { "encoder_model.onnx", "decoder_model.onnx" })
-            await ModelDownloader.EnsureAsync(
-                http,
-                url:      $"{HfBase}/{repo}/resolve/main/onnx/{file}",
-                destPath: Path.Combine(cfg.TranslateModelsDir, file),
-                label:    $"Translate/{file}", ct: ct);
-
-        await ModelDownloader.EnsureAsync(
-            http,
-            url:      $"{HfBase}/{repo}/resolve/main/tokenizer.json",
-            destPath: Path.Combine(cfg.TranslateModelsDir, "tokenizer.json"),
-            label:    "Translate/tokenizer.json", ct: ct);
+        Directory.CreateDirectory(entry.Dir);
+        foreach (var filePath in entry.FileList)
+        {
+            var fileName = Path.GetFileName(filePath);
+            var url      = $"{HfBase}/{entry.Repo}/resolve/main/{filePath}";
+            var dest     = Path.Combine(entry.Dir, fileName);
+            await ModelDownloader.EnsureAsync(http, url, dest, $"{label}/{fileName}", ct: ct);
+        }
     }
 
     private static async Task DownloadDictionaryAsync(
@@ -169,11 +159,52 @@ public sealed class BootBackgroundService(
         {
             var url = await ModelDownloader.FindGitHubReleaseAssetAsync(
                 http, "stephenmk", "Jitendex", "yomitan", ct);
+            Directory.CreateDirectory(cfg.DictDir);
             await ModelDownloader.EnsureAsync(http, url, destPath, "Dict/jitendex-yomitan.zip", ct: ct);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Could not download Jitendex; dictionary will be unavailable.");
         }
+    }
+
+    // ── Download plan summary ─────────────────────────────────────────────────
+
+    private static void PrintDownloadPlan(AllModelSettings ms, AppConfig cfg)
+    {
+        var entries = new (ModelEntry Entry, string Label)[]
+        {
+            (ms.Ocr,       "OCR"),
+            (ms.Translate, "Translate"),
+            (ms.Inpaint,   "Inpaint"),
+            (ms.Bubble,    "Bubble"),
+        };
+
+        var dictFile    = Path.Combine(cfg.DictDir, "jitendex-yomitan.zip");
+        bool dictMissing = !File.Exists(dictFile);
+        bool anyMissing  = dictMissing || entries.Any(e =>
+            e.Entry.ShouldDownload &&
+            e.Entry.FileList.Any(f => !File.Exists(Path.Combine(e.Entry.Dir, Path.GetFileName(f)))));
+
+        if (!anyMissing) return;
+
+        Console.WriteLine();
+        Console.WriteLine("[Boot] ─── Models to download ─────────────────────────────────────────────");
+
+        foreach (var (entry, label) in entries)
+        {
+            if (!entry.ShouldDownload) continue;
+            foreach (var f in entry.FileList)
+            {
+                var dest = Path.Combine(entry.Dir, Path.GetFileName(f));
+                Console.WriteLine($"[Boot]   {(File.Exists(dest) ? "✓" : "↓")} {label}/{Path.GetFileName(f),-30}  {dest}");
+            }
+        }
+
+        if (dictMissing)
+            Console.WriteLine($"[Boot]   ↓ Dict/jitendex-yomitan.zip             {dictFile}");
+
+        Console.WriteLine("[Boot] ─────────────────────────────────────────────────────────────────────");
+        Console.WriteLine();
     }
 }

@@ -8,12 +8,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/js/react-app.css" />
+    <link rel="stylesheet" href="/js/app.css" />
 </head>
 <body>
     <Routes />
-    @* React bundle must load before blazor.web.js so ReactBridge is ready when Blazor calls mount *@
-    <script src="/js/react-app.js"></script>
+    @* SolidJS bundle must load before blazor.web.js so AppBridge is ready when Blazor calls mount *@
+    <script src="/js/app.js"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>

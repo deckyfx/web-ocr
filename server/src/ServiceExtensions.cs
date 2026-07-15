@@ -4,11 +4,23 @@ using WebOcrServer.Data;
 
 namespace WebOcrServer;
 
-/// <summary>Tracks whether all boot tasks (model download + service init) have completed.</summary>
+/// <summary>Tracks per-model readiness and overall boot completion.</summary>
 public sealed class BootState
 {
-    public bool IsReady        { get; set; }
+    public bool OcrReady        { get; set; }
+    public bool TranslateReady  { get; set; }
     public bool DictionaryReady { get; set; }
+
+    // Optional models — only relevant when enabled in ModelSettingsStore
+    public bool InpaintReady    { get; set; }
+    public bool BubbleReady     { get; set; }
+
+    /// <summary>Mirrors the enabled flag from settings so /health can distinguish "disabled" from "not yet ready".</summary>
+    public bool InpaintEnabled  { get; set; }
+    public bool BubbleEnabled   { get; set; }
+
+    /// <summary>True once OCR and Translate are both initialized. /health returns "ok" or "degraded" from here.</summary>
+    public bool IsReady { get; set; }
 }
 
 public static class ServiceExtensions
@@ -17,6 +29,10 @@ public static class ServiceExtensions
     {
         var config = AppConfig.FromEnvironment();
         builder.Services.AddSingleton(config);
+
+        // Model settings store: env vars → persisted JSON → defaults (runtime-configurable via /api/settings)
+        builder.Services.AddSingleton<ModelSettingsStore>(sp =>
+            ModelSettingsStore.Create(config, sp.GetRequiredService<ILogger<ModelSettingsStore>>()));
 
         // JSON: serialize/deserialize with snake_case (elapsed_ms, is_common, etc.)
         builder.Services.ConfigureHttpJsonOptions(opts =>
@@ -67,6 +83,7 @@ public static class ServiceExtensions
         app.MapOcrRoutes();
         app.MapTranslateRoutes();
         app.MapAnalyzeRoutes();
+        app.MapSettingsRoutes();
         return app;
     }
 }
