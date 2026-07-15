@@ -6,10 +6,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>WebOcrServer</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>1.2.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
   </PropertyGroup>
 
-  <!-- Build React client before the C# project so wwwroot/js/react-app.js is ready -->
-  <Target Name="BuildReactClient" BeforeTargets="Build">
+  <!-- Build SolidJS client before the C# project so wwwroot/js/app.js is ready -->
+  <Target Name="BuildSolidClient" BeforeTargets="Build">
     <Exec Command="bun run build" WorkingDirectory="$(ProjectDir)" />
   </Target>
 

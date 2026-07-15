@@ -290,6 +290,7 @@ function showResult(msg: OcrResultMsg): void {
     <div class="socr-actions">
       <button class="socr-copy" data-text="${escAttr(msg.text)}">Copy</button>
       ${hasText ? `<button class="socr-explain" data-text="${escAttr(msg.text)}">Explain</button>` : ""}
+      <button class="socr-rescan">Re-scan</button>
     </div>
     ${msg.translation ? `
       <div class="socr-text-label">Translation</div>
@@ -447,6 +448,11 @@ function repositionPanel(panel: HTMLElement, selX: number, selY: number, selW: n
 
 function wirePanelButtons(panel: HTMLElement): void {
   panel.querySelector(".socr-close")?.addEventListener("click", () => cleanup());
+
+  panel.querySelector(".socr-rescan")?.addEventListener("click", () => {
+    cleanup();
+    startSelection();
+  });
 
   panel.querySelector<HTMLButtonElement>(".socr-back")?.addEventListener("click", () => {
     if (lastOcrResult) showResult(lastOcrResult);
