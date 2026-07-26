@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using WebOcrServer.Data;
 
@@ -10,9 +11,11 @@ using WebOcrServer.Data;
 namespace WebOcrServer.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260726035542_AddPortalSchema")]
+    partial class AddPortalSchema
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.18");
@@ -175,8 +178,6 @@ namespace WebOcrServer.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("JobId");
-
                     b.ToTable("PageTranslationLogs");
                 });
 
@@ -252,17 +253,6 @@ namespace WebOcrServer.Migrations
                         .HasForeignKey("ChapterId");
 
                     b.Navigation("Chapter");
-                });
-
-            modelBuilder.Entity("WebOcrServer.Data.PageTranslationLog", b =>
-                {
-                    b.HasOne("WebOcrServer.Data.PageTranslationJob", "Job")
-                        .WithMany()
-                        .HasForeignKey("JobId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Job");
                 });
 
             modelBuilder.Entity("WebOcrServer.Data.Chapter", b =>

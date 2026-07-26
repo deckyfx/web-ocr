@@ -81,8 +81,10 @@ public sealed class ModelSettingsStore
     /// </summary>
     public static ModelSettingsStore Create(AppConfig config, ILogger<ModelSettingsStore> logger)
     {
-        var dataRoot = Path.GetDirectoryName(config.DatabasePath)
-                    ?? Path.Combine(Directory.GetCurrentDirectory(), "data");
+        // GetDirectoryName returns "" (not null) for a bare filename like "ocr.db"
+        var dataRoot = Path.GetDirectoryName(config.DatabasePath) is { Length: > 0 } d
+                     ? d
+                     : Path.Combine(Directory.GetCurrentDirectory(), "data");
         var filePath = Path.Combine(dataRoot, "model-settings.json");
 
         var fromEnv  = FromEnv(config);
@@ -141,17 +143,20 @@ public sealed class ModelSettingsStore
             },
             Inpaint = new ModelEntry
             {
-                Repo    = Ev("INPAINT_MODEL_REPO")  ?? "",
+                // Carve/LaMa-ONNX — Apache-2.0, 208 MB, fixed 512×512 input
+                Repo    = Ev("INPAINT_MODEL_REPO")  ?? "Carve/LaMa-ONNX",
                 Dir     = config.InpaintModelsDir,
                 Enabled = EvBool("INPAINT_MODEL_ENABLED", false),
-                Files   = Ev("INPAINT_MODEL_FILES") ?? "model.onnx",
+                Files   = Ev("INPAINT_MODEL_FILES") ?? "lama_fp32.onnx",
             },
             Bubble = new ModelEntry
             {
-                Repo    = Ev("BUBBLE_MODEL_REPO")  ?? "",
+                // ogkalu/comic-text-and-bubble-detector — Apache-2.0, 11 MB INT8 quantised RT-DETR
+                // 3 classes: 0=bubble, 1=text-in-bubble, 2=text-outside-bubble
+                Repo    = Ev("BUBBLE_MODEL_REPO")  ?? "ogkalu/comic-text-and-bubble-detector",
                 Dir     = config.BubbleModelsDir,
                 Enabled = EvBool("BUBBLE_MODEL_ENABLED", false),
-                Files   = Ev("BUBBLE_MODEL_FILES") ?? "model.onnx",
+                Files   = Ev("BUBBLE_MODEL_FILES") ?? "detector-v4-s_int8.onnx",
             },
         };
     }
@@ -192,12 +197,15 @@ public sealed class ModelSettingsStore
         static string? Ev(string k) =>
             Environment.GetEnvironmentVariable(k) is { Length: > 0 } v ? v : null;
 
+        // Treat empty strings from JSON the same as absent — don't let "" shadow env defaults.
+        static string? NonEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
+
         return new ModelEntry
         {
-            // Env wins for string fields; fall back to file, then env default
-            Repo  = Ev(repoKey)  ?? file.Repo  ?? env.Repo,
-            Dir   = Ev(dirKey)   ?? file.Dir   ?? env.Dir,
-            Files = Ev(filesKey) ?? file.Files ?? env.Files,
+            // Env wins for string fields; fall back to file (only if non-empty), then env default
+            Repo  = Ev(repoKey)  ?? NonEmpty(file.Repo)  ?? env.Repo,
+            Dir   = Ev(dirKey)   ?? NonEmpty(file.Dir)   ?? env.Dir,
+            Files = Ev(filesKey) ?? NonEmpty(file.Files) ?? env.Files,
             // For bool: env wins if set; otherwise use the persisted file value
             Enabled = Ev(enabledKey) is { } v
                            ? v.Equals("true", StringComparison.OrdinalIgnoreCase)

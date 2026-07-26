@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@solidjs/router": "^0.15.3",
     "lucide-solid": "^0.468.0",
     "solid-js": "^1.9.7",
     "tailwindcss": "^4"

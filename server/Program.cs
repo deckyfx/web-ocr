@@ -49,6 +49,7 @@ else
 
 app.UseCors();
 app.UseStaticFiles();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 // Map routes BEFORE BootBackgroundService completes so /health responds during model download/init
@@ -56,5 +57,38 @@ app.UseAntiforgery();
 app.MapWebOcrRoutes();
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
+
+// ── Startup banner (fires once Kestrel is accepting connections) ──────────────
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    var version = typeof(AppConfig).Assembly.GetName().Version?.ToString(3) ?? "?";
+
+    // Collect all reachable IPv4 addresses for LAN access line
+    var lanIps = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName())
+        .AddressList
+        .Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        .Select(a => a.ToString())
+        .ToArray();
+
+    string listenInfo = string.IsNullOrEmpty(socketPath)
+        ? $"port {port}"
+        : $"socket {socketPath}";
+
+    Console.WriteLine();
+    Console.WriteLine("┌─────────────────────────────────────────────────────────────────┐");
+    Console.WriteLine($"│  Web OCR Server  v{version,-47}│");
+    Console.WriteLine("│                                                                 │");
+    Console.WriteLine($"│  Listening on  {listenInfo,-51}│");
+    if (string.IsNullOrEmpty(socketPath))
+    {
+        Console.WriteLine($"│  Dashboard     http://localhost:{port,-35}│");
+        foreach (var ip in lanIps)
+            Console.WriteLine($"│                http://{ip}:{port,-41}│");
+    }
+    Console.WriteLine("│                                                                 │");
+    Console.WriteLine("│  [Boot] Server is ready.                                        │");
+    Console.WriteLine("└─────────────────────────────────────────────────────────────────┘");
+    Console.WriteLine();
+});
 
 app.Run();

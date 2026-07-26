@@ -9,6 +9,7 @@ import type {
   OcrResultMsg,
   ToEngineMsg,
   FromEngineMsg,
+  FetchImageMsg,
 } from "./types";
 
 // ── Guard ─────────────────────────────────────────────────────────────────────
@@ -46,6 +47,7 @@ let ocrStartTime = 0;
 function init(): void {
   chrome.runtime.onMessage.addListener((msg: ToContentMsg) => {
     if      (msg.type === "start-selection")  startSelection();
+    else if (msg.type === "start-image-mode") startImageMode();
     else if (msg.type === "start-ocr-local")  startLocalOcr(msg.image, msg.lang, msg.quality, msg.requestId);
     else if (msg.type === "ocr-result")       showResult(msg);
     else if (msg.type === "ocr-error")        showError(msg.message);
@@ -498,11 +500,278 @@ function removeResultPanel(): void {
 function cleanup(): void {
   removeOverlay();
   removeResultPanel();
+  exitImageMode();
   selectionRect = null;
   explainItems = [];
   explainPage = 0;
   lastOcrResult = null;
   activeRequestId = null;
+}
+
+// ── Image picker mode ─────────────────────────────────────────────────────────
+
+let imagePickerActive = false;
+let hoveredImg: HTMLImageElement | null = null;
+let imagePickerHint: HTMLElement | null = null;
+let imageTranslateOverlay: HTMLElement | null = null;
+let imageTranslateLogList: HTMLElement | null = null;
+let activeEventSource: EventSource | null = null;
+
+function startImageMode(): void {
+  cleanup();
+  imagePickerActive = true;
+
+  const hint = document.createElement("div");
+  hint.id = "socr-hint";
+  hint.textContent = "Click an image to translate it — Esc to cancel";
+  document.body.appendChild(hint);
+  imagePickerHint = hint;
+
+  document.addEventListener("mouseover", onImageHover, true);
+  document.addEventListener("mouseout", onImageOut, true);
+  document.addEventListener("click", onImageClick, true);
+  document.addEventListener("keydown", onImagePickerKeydown);
+}
+
+function exitImageMode(): void {
+  // Always close the stream — it may be opened after imagePickerActive was cleared
+  activeEventSource?.close();
+  activeEventSource = null;
+
+  if (!imagePickerActive) return;
+  imagePickerActive = false;
+  document.removeEventListener("mouseover", onImageHover, true);
+  document.removeEventListener("mouseout", onImageOut, true);
+  document.removeEventListener("click", onImageClick, true);
+  document.removeEventListener("keydown", onImagePickerKeydown);
+  if (hoveredImg) {
+    hoveredImg.style.outline = "";
+    hoveredImg.style.cursor = "";
+    hoveredImg = null;
+  }
+  imagePickerHint?.remove();
+  imagePickerHint = null;
+}
+
+function onImageHover(e: MouseEvent): void {
+  const el = e.target as HTMLElement;
+  if (el.tagName !== "IMG") return;
+  if (hoveredImg && hoveredImg !== el) {
+    hoveredImg.style.outline = "";
+    hoveredImg.style.cursor = "";
+  }
+  hoveredImg = el as HTMLImageElement;
+  hoveredImg.style.outline = "3px solid #89b4fa";
+  hoveredImg.style.cursor = "pointer";
+}
+
+function onImageOut(e: MouseEvent): void {
+  const el = e.target as HTMLElement;
+  if (el.tagName !== "IMG") return;
+  (el as HTMLElement).style.outline = "";
+  (el as HTMLElement).style.cursor = "";
+  if (hoveredImg === el) hoveredImg = null;
+}
+
+function onImageClick(e: MouseEvent): void {
+  if (!imagePickerActive) return;
+  const el = e.target as HTMLElement;
+  if (el.tagName !== "IMG") return;
+  e.preventDefault();
+  e.stopPropagation();
+  e.stopImmediatePropagation();
+  exitImageMode();
+  void uploadImageForTranslation(el as HTMLImageElement);
+}
+
+function onImagePickerKeydown(e: KeyboardEvent): void {
+  if (e.key === "Escape") exitImageMode();
+}
+
+async function uploadImageForTranslation(img: HTMLImageElement): Promise<void> {
+  showImageTranslateLoading();
+
+  try {
+    // Get image as base64 — try canvas first (same-origin), fall back to background fetch
+    let base64: string;
+    const src = img.currentSrc || img.src;
+
+    try {
+      base64 = await imageElementToBase64(img);
+    } catch {
+      // Cross-origin: ask background service worker to fetch
+      const fetchMsg: FetchImageMsg = { type: "fetch-image", url: src };
+      const result = await chrome.runtime.sendMessage(fetchMsg as unknown as FromContentMsg) as
+        | { base64: string; error?: undefined }
+        | { error: string; base64?: undefined }
+        | undefined;
+      if (!result) throw new Error("Extension service worker not responding");
+      if (result.error ?? !result.base64) throw new Error(result.error ?? "Failed to fetch image");
+      base64 = result.base64;
+    }
+
+    // Get server URL from settings
+    const stored = await chrome.storage.sync.get(["serverUrl"]) as { serverUrl?: string };
+    const serverUrl = stored.serverUrl?.replace(/\/$/, "") ?? "";
+    if (!serverUrl) throw new Error("No server URL configured. Open extension settings.");
+
+    // Submit translate-page job
+    const submitRes = await fetch(`${serverUrl}/api/translate-page`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: base64 }),
+    });
+    if (!submitRes.ok) throw new Error(`Server ${submitRes.status}: ${await submitRes.text()}`);
+    const { job_id } = await submitRes.json() as { job_id: string };
+
+    // Close the "Uploading…" entry and open SSE stream
+    appendLogEntry("Uploaded ✓", "uploaded");
+
+    activeEventSource?.close();
+    const es = new EventSource(`${serverUrl}/api/translate-page/${job_id}/events`);
+    activeEventSource = es;
+
+    es.onmessage = (event: MessageEvent) => {
+      const data = JSON.parse(event.data as string) as JobSseEvent;
+
+      if (data.type === "log") {
+        appendLogEntry(data.message ?? "", data.stage);
+      } else if (data.type === "done") {
+        es.close();
+        activeEventSource = null;
+        if (data.result) {
+          img.src = `data:image/png;base64,${data.result}`;
+          img.srcset = "";
+        }
+        appendLogEntry("Image replaced ✓", "done");
+        setTimeout(() => hideImageTranslateLoading(true), 1500);
+      } else if (data.type === "error") {
+        es.close();
+        activeEventSource = null;
+        hideImageTranslateLoading(false, data.error ?? data.message ?? "Unknown error");
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      activeEventSource = null;
+      hideImageTranslateLoading(false, "Connection to server lost");
+    };
+
+  } catch (e) {
+    hideImageTranslateLoading(false, e instanceof Error ? e.message : String(e));
+  }
+}
+
+interface JobSseEvent {
+  type: "log" | "done" | "error";
+  message?: string;
+  stage?: string;
+  progress?: number;
+  count?: number;
+  result?: string;
+  error?: string;
+}
+
+async function imageElementToBase64(img: HTMLImageElement): Promise<string> {
+  // Throws SecurityError for cross-origin images
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (w === 0 || h === 0) throw new Error("Image has zero dimensions — not yet loaded?");
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("No 2D context");
+  ctx.drawImage(img, 0, 0);
+  const dataUrl = canvas.toDataURL("image/png");
+  return dataUrl.split(",")[1] ?? "";
+}
+
+function showImageTranslateLoading(): void {
+  // Remove any previous overlay before creating a new one
+  if (imageTranslateOverlay) {
+    imageTranslateOverlay.remove();
+    imageTranslateOverlay = null;
+    imageTranslateLogList = null;
+  }
+  const panel = document.createElement("div");
+  panel.className = "socr-result-panel socr-img-log-panel";
+
+  const inner = document.createElement("div");
+  inner.className = "socr-panel-inner";
+
+  const title = document.createElement("div");
+  title.className = "socr-text-label";
+  title.style.cssText = "margin-top:0!important;margin-bottom:8px!important;";
+  title.textContent = "Translating page…";
+
+  const logList = document.createElement("div");
+  logList.className = "socr-log-list";
+
+  inner.appendChild(title);
+  inner.appendChild(logList);
+  panel.appendChild(inner);
+  document.body.appendChild(panel);
+
+  imageTranslateOverlay = panel;
+  imageTranslateLogList  = logList;
+
+  // First entry — pending while upload is in flight
+  appendLogEntry("Uploading image…", "upload");
+}
+
+function appendLogEntry(message: string, stage?: string): void {
+  if (!imageTranslateLogList) return;
+
+  // Mark the previous pending entry as done when the next one arrives
+  const prev = imageTranslateLogList.lastElementChild as HTMLElement | null;
+  if (prev?.dataset["pending"] === "1") {
+    prev.dataset["pending"] = "0";
+    const dot = prev.querySelector<HTMLElement>(".socr-log-dot");
+    if (dot) {
+      dot.textContent = "✓";
+      dot.classList.remove("socr-log-dot-spin");
+    }
+  }
+
+  const isDone = stage === "done" || stage === "error";
+
+  const entry = document.createElement("div");
+  entry.className = "socr-log-entry";
+  entry.dataset["pending"] = isDone ? "0" : "1";
+
+  const dot = document.createElement("span");
+  dot.className = "socr-log-dot" + (isDone ? "" : " socr-log-dot-spin");
+  dot.textContent = isDone ? "✓" : "●";
+
+  const text = document.createElement("span");
+  text.className = "socr-log-text";
+  text.textContent = message;
+
+  entry.appendChild(dot);
+  entry.appendChild(text);
+  imageTranslateLogList.appendChild(entry);
+  imageTranslateLogList.scrollTop = imageTranslateLogList.scrollHeight;
+}
+
+function hideImageTranslateLoading(success: boolean, errorMsg?: string): void {
+  if (!imageTranslateOverlay) return;
+  if (success) {
+    imageTranslateOverlay.remove();
+    imageTranslateOverlay = null;
+    imageTranslateLogList  = null;
+  } else {
+    appendLogEntry(`✗ ${errorMsg ?? "Failed"}`, "error");
+    const overlay = imageTranslateOverlay;
+    setTimeout(() => {
+      overlay.remove();
+      if (imageTranslateOverlay === overlay) {
+        imageTranslateOverlay = null;
+        imageTranslateLogList  = null;
+      }
+    }, 5000);
+  }
 }
 
 // ── Drag ──────────────────────────────────────────────────────────────────────
@@ -559,6 +828,10 @@ function makeResizable(panel: HTMLElement, handle: HTMLElement): void {
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

@@ -13,8 +13,8 @@ public static class HealthRoutes
 
             var models = new Dictionary<string, ModelStatus>
             {
-                ["ocr"]        = new(ms.Ocr.Repo,       boot.OcrReady,        Enabled: true),
-                ["translate"]  = new(ms.Translate.Repo,  boot.TranslateReady,  Enabled: true),
+                ["ocr"]        = new(ms.Ocr.Repo,       boot.OcrReady,        Enabled: ms.Ocr.Enabled),
+                ["translate"]  = new(ms.Translate.Repo,  boot.TranslateReady,  Enabled: ms.Translate.Enabled),
                 ["dictionary"] = new("stephenmk/Jitendex", boot.DictionaryReady, Enabled: true),
                 ["inpaint"]    = new(
                     string.IsNullOrWhiteSpace(ms.Inpaint.Repo) ? "(not configured)" : ms.Inpaint.Repo,
@@ -26,8 +26,16 @@ public static class HealthRoutes
                     Enabled: boot.BubbleEnabled),
             };
 
+            // "degraded" if any enabled model hasn't finished loading
+            bool optionalsMissing =
+                !boot.DictionaryReady ||
+                (ms.Ocr.Enabled       && !boot.OcrReady)       ||
+                (ms.Translate.Enabled && !boot.TranslateReady)  ||
+                (boot.InpaintEnabled  && !boot.InpaintReady)    ||
+                (boot.BubbleEnabled   && !boot.BubbleReady);
+
             return Results.Ok(new HealthResponse(
-                Status:             boot.IsReady ? (boot.DictionaryReady ? "ok" : "degraded") : "starting",
+                Status:             boot.IsReady ? (optionalsMissing ? "degraded" : "ok") : "starting",
                 Version:            version,
                 OcrModelsDir:       ms.Ocr.Dir,
                 TranslateModelsDir: ms.Translate.Dir,

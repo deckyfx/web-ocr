@@ -5,6 +5,8 @@ import type {
   ToContentMsg,
   TokenInfo,
   JishoEntry,
+  PopupModeMsg,
+  FetchImageMsg,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
@@ -16,18 +18,17 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
-// ── Toolbar click ─────────────────────────────────────────────────────────────
+// ── Popup mode handler ────────────────────────────────────────────────────────
 
-chrome.action.onClicked.addListener((tab) => { void handleClick(tab); });
-
-async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
+async function handlePopupMode(mode: "region" | "image"): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return;
   const tabId = tab.id;
-  if (!tabId) return;
 
   const settings = await loadSettings();
 
-  // If no engine is configured yet, open options
-  if (settings.ocrEngine === "server" && !settings.serverUrl) {
+  // Image mode always requires a server URL regardless of engine setting
+  if ((settings.ocrEngine === "server" || mode === "image") && !settings.serverUrl) {
     await chrome.tabs.create({ url: chrome.runtime.getURL("options.html") });
     return;
   }
@@ -44,7 +45,11 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
       await sleep(40);
     }
 
-    sendToTab(tabId, { type: "start-selection" } satisfies ToContentMsg);
+    if (mode === "region") {
+      sendToTab(tabId, { type: "start-selection" } satisfies ToContentMsg);
+    } else {
+      sendToTab(tabId, { type: "start-image-mode" } satisfies ToContentMsg);
+    }
   } catch (e) {
     console.error("OCR: failed to inject content script:", e);
   }
@@ -52,9 +57,24 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((msg: FromContentMsg, sender) => {
+chrome.runtime.onMessage.addListener((
+  msg: FromContentMsg,
+  sender,
+  sendResponse: (response: unknown) => void,
+) => {
+  // fetch-image must return true to keep the message channel open for the async response
+  if ((msg as FetchImageMsg).type === "fetch-image") {
+    const { url } = msg as FetchImageMsg;
+    fetchImageAsBase64(url).then(sendResponse).catch((e: unknown) => {
+      sendResponse({ error: String(e) });
+    });
+    return true;
+  }
+
   const tabId = sender.tab?.id;
-  if (msg.type === "selection-complete" && tabId !== undefined) {
+  if ((msg as PopupModeMsg).type === "popup-mode") {
+    void handlePopupMode((msg as PopupModeMsg).mode);
+  } else if (msg.type === "selection-complete" && tabId !== undefined) {
     void handleSelection(msg.rect, tabId);
   } else if (msg.type === "ocr-local-done" && tabId !== undefined) {
     void handleLocalDone(msg.requestId, msg.text, msg.elapsed_ms, tabId);
@@ -232,6 +252,34 @@ async function translateDeepL(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+const FETCH_IMAGE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+const FETCH_IMAGE_TIMEOUT_MS = 15_000;
+
+async function fetchImageAsBase64(url: string): Promise<{ base64: string } | { error: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_IMAGE_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return { error: `HTTP ${res.status}` };
+    const ct = res.headers.get("content-type") ?? "";
+    if (!ct.startsWith("image/")) return { error: `Unexpected content type: ${ct}` };
+    const blob = await res.blob();
+    if (blob.size > FETCH_IMAGE_MAX_BYTES) return { error: "Image too large (>10 MB)" };
+    const ab = await blob.arrayBuffer();
+    const bytes = new Uint8Array(ab);
+    let binary = "";
+    const chunk = 8192;
+    for (let i = 0; i < bytes.byteLength; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return { base64: btoa(binary) };
+  } catch (e) {
+    clearTimeout(timer);
+    return { error: String(e) };
+  }
+}
 
 function sendToTab(tabId: number, msg: ToContentMsg): void {
   chrome.tabs.sendMessage(tabId, msg).catch(console.error);

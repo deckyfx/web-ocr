@@ -17,6 +17,9 @@ public sealed record AppConfig(
     /// <summary>True when the server should bind to a Unix socket instead of a TCP port.</summary>
     public bool UseUnixSocket => !string.IsNullOrWhiteSpace(SocketPath);
 
+    /// <summary>Root directory for per-job image files. Each job gets a sub-folder named by its GUID.</summary>
+    public string JobsDir => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(DatabasePath))!, "jobs");
+
     public static AppConfig FromEnvironment()
     {
         LoadDotEnv();

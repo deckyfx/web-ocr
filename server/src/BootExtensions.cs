@@ -9,13 +9,14 @@ namespace WebOcrServer;
 /// returns "starting" while work is in progress.
 /// </summary>
 public sealed class BootBackgroundService(
-    AppConfig            config,
-    BootState            bootState,
-    ModelSettingsStore   modelSettings,
-    OcrEngine            ocr,
-    TranslateService     translate,
-    DictionaryService    dict,
-    IServiceScopeFactory scopeFactory,
+    AppConfig               config,
+    BootState               bootState,
+    ModelSettingsStore      modelSettings,
+    OcrEngine               ocr,
+    TranslateService        translate,
+    DictionaryService       dict,
+    BubbleDetectionService  bubble,
+    IServiceScopeFactory    scopeFactory,
     ILogger<BootBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -61,10 +62,11 @@ public sealed class BootBackgroundService(
             if (ms.Ocr.Enabled)
             {
                 logger.LogInformation("[Boot] Loading OCR models...");
+                var ocr0 = ms.Ocr.FileList;
                 await ocr.InitializeAsync(
-                    Path.Combine(ms.Ocr.Dir, "encoder_model.onnx"),
-                    Path.Combine(ms.Ocr.Dir, "decoder_model.onnx"),
-                    Path.Combine(ms.Ocr.Dir, "vocab.txt"));
+                    Path.Combine(ms.Ocr.Dir, Path.GetFileName(ocr0[0])),
+                    Path.Combine(ms.Ocr.Dir, Path.GetFileName(ocr0[1])),
+                    Path.Combine(ms.Ocr.Dir, Path.GetFileName(ocr0[2])));
                 bootState.OcrReady = true;
                 logger.LogInformation("[Boot] OCR engine ready.");
             }
@@ -72,10 +74,11 @@ public sealed class BootBackgroundService(
             if (ms.Translate.Enabled)
             {
                 logger.LogInformation("[Boot] Loading Translate models...");
+                var tr0 = ms.Translate.FileList;
                 await translate.InitializeAsync(
-                    Path.Combine(ms.Translate.Dir, "encoder_model.onnx"),
-                    Path.Combine(ms.Translate.Dir, "decoder_model.onnx"),
-                    Path.Combine(ms.Translate.Dir, "tokenizer.json"), ct);
+                    Path.Combine(ms.Translate.Dir, Path.GetFileName(tr0[0])),
+                    Path.Combine(ms.Translate.Dir, Path.GetFileName(tr0[1])),
+                    Path.Combine(ms.Translate.Dir, Path.GetFileName(tr0[2])), ct);
                 bootState.TranslateReady = true;
                 logger.LogInformation("[Boot] Translate service ready.");
             }
@@ -91,9 +94,20 @@ public sealed class BootBackgroundService(
 
             if (ms.Bubble.ShouldDownload)
             {
-                logger.LogInformation("[Boot] Bubble-detection model downloaded; service init pending (not yet wired).");
-                // TODO: initialise BubbleService when implemented
-                bootState.BubbleReady = true;
+                try
+                {
+                    logger.LogInformation("[Boot] Loading Bubble-detection model...");
+                    var modelFile = Path.GetFileName(ms.Bubble.FileList[0]);
+                    var modelPath = Path.Combine(ms.Bubble.Dir, modelFile);
+                    bubble.LoadModel(modelPath);
+                    bootState.BubbleReady = true;
+                    logger.LogInformation("[Boot] Bubble-detection service ready.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex,
+                        "[Boot] Bubble-detection model failed to load — page translation will use whole-image fallback.");
+                }
             }
 
             // ── 8. Dictionary (non-fatal) ─────────────────────────────────────
