@@ -32,6 +32,7 @@ const entries = [
   { name: "content",    file: "./src/content.ts" },
   { name: "options",    file: "./src/options.ts" },
   { name: "engine",     file: "./src/engine.ts" },
+  { name: "popup",      file: "./src/popup.ts" },
 ];
 
 // Resolve the extension's runtime URL prefix for engine.ts WASM paths.
@@ -115,20 +116,12 @@ console.log("🎉 Extension ready in ./dist/");
 console.log("   Load it in Chrome: chrome://extensions → Load unpacked → select ./dist/\n");
 
 if (!DEV) {
-  // ── Archive ─────────────────────────────────────────────────────────────────
-  process.stdout.write("  Archiving dist → selfhost-ocr.tar.gz...");
+  // ── Archive (zip — required by Chrome Web Store and manual sideloading) ─────
+  process.stdout.write("  Archiving dist → selfhost-ocr.zip...");
 
-  const archiveFiles: Record<string, Uint8Array> = {};
-  const glob = new Bun.Glob("**/*");
+  await Bun.$`rm -f selfhost-ocr.zip && cd dist && zip -rq ../selfhost-ocr.zip .`;
 
-  for await (const rel of glob.scan({ cwd: "./dist", onlyFiles: true })) {
-    archiveFiles[rel] = await Bun.file(`./dist/${rel}`).bytes();
-  }
-
-  const archive = new Bun.Archive(archiveFiles);
-  await Bun.write("selfhost-ocr.tar.gz", archive);
-
-  const size = Bun.file("selfhost-ocr.tar.gz").size;
+  const size = Bun.file("selfhost-ocr.zip").size;
   console.log(` ✅  (${(size / 1024).toFixed(1)} KB)`);
-  console.log("   selfhost-ocr.tar.gz ready for distribution.");
+  console.log("   selfhost-ocr.zip ready for Chrome Web Store or manual install.");
 }

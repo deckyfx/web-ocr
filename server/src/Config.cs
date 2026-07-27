@@ -2,14 +2,23 @@ namespace WebOcrServer;
 
 public sealed record AppConfig(
     int Port,
+    string? SocketPath,
     string OcrModelsDir,
     string TranslateModelsDir,
+    string InpaintModelsDir,
+    string BubbleModelsDir,
     string DictDir,
     string DatabasePath,
     string DeeplApiKey
 )
 {
     public bool DeeplAvailable => !string.IsNullOrWhiteSpace(DeeplApiKey);
+
+    /// <summary>True when the server should bind to a Unix socket instead of a TCP port.</summary>
+    public bool UseUnixSocket => !string.IsNullOrWhiteSpace(SocketPath);
+
+    /// <summary>Root directory for per-job image files. Each job gets a sub-folder named by its GUID.</summary>
+    public string JobsDir => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(DatabasePath))!, "jobs");
 
     public static AppConfig FromEnvironment()
     {
@@ -26,8 +35,11 @@ public sealed record AppConfig(
 
         return new AppConfig(
             Port:              port,
+            SocketPath:        Env("SOCKET_PATH"),
             OcrModelsDir:      Env("OCR_MODELS_DIR")       ?? Path.Combine(root, "models", "ocr"),
             TranslateModelsDir: Env("TRANSLATE_MODELS_DIR") ?? Path.Combine(root, "models", "translate"),
+            InpaintModelsDir:  Env("INPAINT_MODELS_DIR")   ?? Path.Combine(root, "models", "inpaint"),
+            BubbleModelsDir:   Env("BUBBLE_MODELS_DIR")    ?? Path.Combine(root, "models", "bubble"),
             DictDir:           Env("DICT_DIR")              ?? Path.Combine(root, "models", "jdict"),
             DatabasePath:      Env("DATABASE_URL")          ?? Path.Combine(root, "ocr.db"),
             DeeplApiKey:       Env("DEEPL_API_KEY")         ?? ""
@@ -39,7 +51,8 @@ public sealed record AppConfig(
 
     // Loads KEY=VALUE pairs from a .env file in the working directory.
     // Already-set env vars take precedence (docker / systemd injected values win).
-    private static void LoadDotEnv()
+    // internal so Program.cs can call it before WebApplication.CreateBuilder.
+    internal static void LoadDotEnv()
     {
         var path = Path.Combine(Directory.GetCurrentDirectory(), ".env");
         if (!File.Exists(path)) return;

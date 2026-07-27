@@ -15,7 +15,37 @@ namespace WebOcrServer.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "9.0.16");
+            modelBuilder.HasAnnotation("ProductVersion", "9.0.18");
+
+            modelBuilder.Entity("WebOcrServer.Data.Chapter", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ChapterNumber")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("VolumeId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VolumeId");
+
+                    b.ToTable("Chapters");
+                });
 
             modelBuilder.Entity("WebOcrServer.Data.OcrLog", b =>
                 {
@@ -42,6 +72,112 @@ namespace WebOcrServer.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("OcrLogs");
+                });
+
+            modelBuilder.Entity("WebOcrServer.Data.PageTranslationJob", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("BubbleCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ChapterId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("OriginalHeight")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OriginalImagePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("OriginalWidth")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PageOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ResultImagePath")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChapterId");
+
+                    b.ToTable("PageTranslationJobs");
+                });
+
+            modelBuilder.Entity("WebOcrServer.Data.PageTranslationLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<float>("BubbleH")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("BubbleIndex")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<float>("BubbleW")
+                        .HasColumnType("REAL");
+
+                    b.Property<float>("BubbleX")
+                        .HasColumnType("REAL");
+
+                    b.Property<float>("BubbleY")
+                        .HasColumnType("REAL");
+
+                    b.Property<float>("Confidence")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsExcluded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsManuallyAdded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("JobId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastEditedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceText")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TranslatedText")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId");
+
+                    b.ToTable("PageTranslationLogs");
                 });
 
             modelBuilder.Entity("WebOcrServer.Data.TranslateLog", b =>
@@ -71,6 +207,72 @@ namespace WebOcrServer.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("TranslateLogs");
+                });
+
+            modelBuilder.Entity("WebOcrServer.Data.Volume", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CoverImagePath")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Synopsis")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Volumes");
+                });
+
+            modelBuilder.Entity("WebOcrServer.Data.Chapter", b =>
+                {
+                    b.HasOne("WebOcrServer.Data.Volume", "Volume")
+                        .WithMany("Chapters")
+                        .HasForeignKey("VolumeId");
+
+                    b.Navigation("Volume");
+                });
+
+            modelBuilder.Entity("WebOcrServer.Data.PageTranslationJob", b =>
+                {
+                    b.HasOne("WebOcrServer.Data.Chapter", "Chapter")
+                        .WithMany("Jobs")
+                        .HasForeignKey("ChapterId");
+
+                    b.Navigation("Chapter");
+                });
+
+            modelBuilder.Entity("WebOcrServer.Data.PageTranslationLog", b =>
+                {
+                    b.HasOne("WebOcrServer.Data.PageTranslationJob", "Job")
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Job");
+                });
+
+            modelBuilder.Entity("WebOcrServer.Data.Chapter", b =>
+                {
+                    b.Navigation("Jobs");
+                });
+
+            modelBuilder.Entity("WebOcrServer.Data.Volume", b =>
+                {
+                    b.Navigation("Chapters");
                 });
 #pragma warning restore 612, 618
         }

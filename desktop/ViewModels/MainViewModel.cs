@@ -145,10 +145,11 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
     public byte[]? ScreenshotPng { get; private set; }
 
     // ── Commands ──────────────────────────────────────────────────────────────
-    public ICommand StartCaptureCommand        { get; }
+    public ICommand StartCaptureCommand         { get; }
     public ICommand ToggleContinuousModeCommand { get; }
-    public ICommand CopyOcrTextCommand         { get; }
-    public ICommand ClearResultsCommand        { get; }
+    public ICommand CopyOcrTextCommand          { get; }
+    public ICommand ClearResultsCommand         { get; }
+    public ICommand ReScanCommand               { get; }
 
     public MainViewModel()
     {
@@ -159,6 +160,7 @@ public class MainViewModel : INotifyPropertyChanged, IDisposable
         ToggleContinuousModeCommand = new DelegateCommand(ToggleContinuousMode);
         CopyOcrTextCommand          = new DelegateCommand(async () => await CopyOcrTextAsync());
         ClearResultsCommand         = new DelegateCommand(ClearResults);
+        ReScanCommand               = new DelegateCommand(async () => { ClearResults(); await StartCaptureAsync(); });
 
         _hotkey.HotkeyFired += () =>
             Dispatcher.UIThread.Post(() => _ = StartCaptureAsync());

@@ -119,14 +119,22 @@
                              IsVisible="{Binding TokenCards.Count,
                                Converter={x:Static vm:NonZeroConverter.Instance}}" />
 
-                <!-- Clear button -->
-                <Button Content="Clear"
-                        Command="{Binding ClearResultsCommand}"
-                        HorizontalAlignment="Right"
-                        Margin="12,4,12,8"
-                        Padding="12,4"
-                        FontSize="12"
-                        Classes="ghost" />
+                <!-- Re-scan / Clear row -->
+                <Grid ColumnDefinitions="Auto,*,Auto" Margin="12,4,12,8">
+                    <Button Grid.Column="0"
+                            Content="⟳ Re-scan"
+                            Command="{Binding ReScanCommand}"
+                            Padding="12,4"
+                            FontSize="12"
+                            Classes="action"
+                            ToolTip.Tip="Clear results and capture a new region" />
+                    <Button Grid.Column="2"
+                            Content="Clear"
+                            Command="{Binding ClearResultsCommand}"
+                            Padding="12,4"
+                            FontSize="12"
+                            Classes="ghost" />
+                </Grid>
             </StackPanel>
         </ScrollViewer>
 

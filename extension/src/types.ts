@@ -77,13 +77,16 @@ export interface OcrErrorMsg        { type: "ocr-error"; message: string }
 export interface ExplainResultMsg   { type: "explain-result"; tokens: TokenInfo[]; definitions: (JishoEntry | null)[]; mode: "local" | "jisho" }
 export interface ExplainErrorMsg    { type: "explain-error"; message: string }
 
+export interface StartImageModeMsg  { type: "start-image-mode" }
+
 export type ToContentMsg =
   | StartSelectionMsg
   | StartOcrLocalMsg
   | OcrResultMsg
   | OcrErrorMsg
   | ExplainResultMsg
-  | ExplainErrorMsg;
+  | ExplainErrorMsg
+  | StartImageModeMsg;
 
 // ── Messages: content → background ───────────────────────────────────────────
 
@@ -92,10 +95,17 @@ export interface SelectionCompleteMsg { type: "selection-complete"; rect: Select
 export interface OcrLocalDoneMsg      { type: "ocr-local-done"; requestId: string; text: string; elapsed_ms: number }
 export interface ExplainRequestMsg    { type: "explain-request"; text: string }
 
+// ── Messages: popup → background ─────────────────────────────────────────────
+
+export interface PopupModeMsg         { type: "popup-mode"; mode: "region" | "image" }
+export interface FetchImageMsg        { type: "fetch-image"; url: string }
+
 export type FromContentMsg =
   | SelectionCompleteMsg
   | OcrLocalDoneMsg
-  | ExplainRequestMsg;
+  | ExplainRequestMsg
+  | PopupModeMsg
+  | FetchImageMsg;
 
 // ── Messages: engine iframe ↔ content (window.postMessage) ───────────────────
 

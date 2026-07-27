@@ -4,11 +4,34 @@ using WebOcrServer.Data;
 
 namespace WebOcrServer;
 
-/// <summary>Tracks whether all boot tasks (model download + service init) have completed.</summary>
+/// <summary>Tracks per-model readiness and overall boot completion.</summary>
 public sealed class BootState
 {
-    public bool IsReady        { get; set; }
-    public bool DictionaryReady { get; set; }
+    // volatile ensures cross-thread visibility: BootBackgroundService writes,
+    // request-handler threads read, with no JIT register-caching in between.
+    private volatile bool _ocrReady;
+    private volatile bool _translateReady;
+    private volatile bool _dictionaryReady;
+    private volatile bool _inpaintReady;
+    private volatile bool _bubbleReady;
+    private volatile bool _inpaintEnabled;
+    private volatile bool _bubbleEnabled;
+    private volatile bool _isReady;
+
+    public bool OcrReady        { get => _ocrReady;        set => _ocrReady = value; }
+    public bool TranslateReady  { get => _translateReady;  set => _translateReady = value; }
+    public bool DictionaryReady { get => _dictionaryReady; set => _dictionaryReady = value; }
+
+    // Optional models — only relevant when enabled in ModelSettingsStore
+    public bool InpaintReady    { get => _inpaintReady;    set => _inpaintReady = value; }
+    public bool BubbleReady     { get => _bubbleReady;     set => _bubbleReady = value; }
+
+    /// <summary>Mirrors the enabled flag from settings so /health can distinguish "disabled" from "not yet ready".</summary>
+    public bool InpaintEnabled  { get => _inpaintEnabled;  set => _inpaintEnabled = value; }
+    public bool BubbleEnabled   { get => _bubbleEnabled;   set => _bubbleEnabled = value; }
+
+    /// <summary>True once OCR and Translate are both initialized. /health returns "ok" or "degraded" from here.</summary>
+    public bool IsReady         { get => _isReady;         set => _isReady = value; }
 }
 
 public static class ServiceExtensions
@@ -18,13 +41,33 @@ public static class ServiceExtensions
         var config = AppConfig.FromEnvironment();
         builder.Services.AddSingleton(config);
 
+        // Model settings store: env vars → persisted JSON → defaults (runtime-configurable via /api/settings)
+        builder.Services.AddSingleton<ModelSettingsStore>(sp =>
+            ModelSettingsStore.Create(config, sp.GetRequiredService<ILogger<ModelSettingsStore>>()));
+
         // JSON: serialize/deserialize with snake_case (elapsed_ms, is_common, etc.)
         builder.Services.ConfigureHttpJsonOptions(opts =>
             opts.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
         // CORS — the browser extension calls from any origin
         builder.Services.AddCors(o =>
-            o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+        {
+            o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+
+            // Portal UI is served by this server; restrict cross-origin access to localhost only
+            o.AddPolicy("portal", p => p
+                .WithOrigins(
+                    "http://localhost",
+                    "http://127.0.0.1",
+                    $"http://localhost:{config.Port}",
+                    $"http://127.0.0.1:{config.Port}")
+                .AllowAnyMethod()
+                .AllowAnyHeader());
+        });
+
+        // Authorization — portal policy explicitly allows unauthenticated (local-first server)
+        builder.Services.AddAuthorization(opts =>
+            opts.AddPolicy("portal", p => p.RequireAssertion(_ => true)));
 
         // ONNX / inference services
         builder.Services.AddSingleton<OcrEngine>();
@@ -56,6 +99,12 @@ public static class ServiceExtensions
         // Readiness tracking — set to true at end of RunBootTasksAsync
         builder.Services.AddSingleton<BootState>();
 
+        // Page translation pipeline
+        builder.Services.AddSingleton<TranslationJobStore>();
+        builder.Services.AddSingleton<BubbleDetectionService>();
+        builder.Services.AddSingleton<TypesettingService>();
+        builder.Services.AddSingleton<PageTranslationService>();
+
         // Blazor with Interactive Server mode (required for IJSRuntime / JS Interop)
         builder.Services.AddRazorComponents()
                         .AddInteractiveServerComponents();
@@ -67,6 +116,9 @@ public static class ServiceExtensions
         app.MapOcrRoutes();
         app.MapTranslateRoutes();
         app.MapAnalyzeRoutes();
+        app.MapSettingsRoutes();
+        app.MapTranslatePageRoutes();
+        app.MapPortalRoutes();
         return app;
     }
 }

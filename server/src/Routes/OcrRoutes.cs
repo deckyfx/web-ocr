@@ -8,10 +8,14 @@ public static class OcrRoutes
     {
         app.MapPost("/ocr", async (
             OcrRequest             req,
+            BootState              boot,
             InferenceQueue         queue,
             IServiceScopeFactory   scopeFactory,
             ILogger<OcrEngine>     logger) =>
         {
+            if (!boot.OcrReady)
+                return Results.Json(new { error = "OCR model not ready" }, statusCode: 503);
+
             if (string.IsNullOrWhiteSpace(req.Image))
                 return Results.BadRequest(new { error = "image is required" });
 

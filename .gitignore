@@ -33,8 +33,13 @@ extension/selfhost-ocr.tar.gz
 .DS_Store
 Thumbs.db
 
+# ── Docs (personal workflow notes, not shared via git) ─────────────────────────
+docs/cr-workflow.md
+
 # ── etc ────────────────────────────────────────────────────────────────────────
 server/server
 mighty-wiggling-cascade.md
 server/data/
 server/result.txt
+manga-reader/
+extension/selfhost-ocr.zip

@@ -263,6 +263,30 @@
   cursor: default !important;
 }
 
+/* Re-scan button */
+.socr-rescan {
+  all: initial;
+  display: inline-block;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #89dceb !important;
+  background: #313244 !important;
+  border: 1px solid #45475a !important;
+  border-radius: 5px !important;
+  padding: 4px 10px !important;
+  cursor: pointer !important;
+  transition: background 0.15s !important;
+  box-sizing: border-box !important;
+}
+.socr-rescan:hover {
+  background: #45475a !important;
+}
+.socr-rescan:focus-visible {
+  outline: 2px solid #89b4fa !important;
+  outline-offset: 2px !important;
+}
+
 /* ── Token card list ────────────────────────────────────────────────────────── */
 
 .socr-token-list {
@@ -390,6 +414,66 @@
   font-family: system-ui, -apple-system, sans-serif !important;
   font-size: 12px !important;
   color: #6c7086 !important;
+}
+
+/* ── Image translate log panel ──────────────────────────────────────────────── */
+
+.socr-img-log-panel {
+  position: fixed !important;
+  bottom: 24px !important;
+  right: 24px !important;
+  width: 300px !important;
+  max-height: 280px !important;
+  /* Override the default top/left from .socr-result-panel */
+  top: auto !important;
+  left: auto !important;
+}
+
+.socr-log-list {
+  all: initial;
+  display: block;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.socr-log-entry {
+  all: initial;
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 8px !important;
+  padding: 3px 0 !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 12px !important;
+  color: #cdd6f4 !important;
+}
+
+.socr-log-dot {
+  all: initial;
+  font-size: 10px !important;
+  color: #89b4fa !important;
+  flex-shrink: 0 !important;
+  margin-top: 1px !important;
+  width: 14px !important;
+  display: inline-block !important;
+  text-align: center !important;
+}
+
+.socr-log-dot-spin {
+  animation: socr-pulse 1s ease-in-out infinite !important;
+  color: #89b4fa !important;
+}
+
+@keyframes socr-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+.socr-log-text {
+  all: initial;
+  font-family: system-ui, -apple-system, sans-serif !important;
+  font-size: 12px !important;
+  color: #cdd6f4 !important;
+  line-height: 1.4 !important;
 }
 
 /* ── Resize handle ──────────────────────────────────────────────────────────── */

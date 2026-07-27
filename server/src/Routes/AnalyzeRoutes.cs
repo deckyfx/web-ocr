@@ -11,10 +11,14 @@ public static class AnalyzeRoutes
     {
         app.MapPost("/analyze", async (
             AnalyzeRequest   req,
+            BootState        boot,
             AnalyzeService   analyzer,
             DictionaryService dict,
             ILogger<AnalyzeService> logger) =>
         {
+            if (!boot.DictionaryReady)
+                return Results.Json(new { error = "Dictionary service not ready" }, statusCode: 503);
+
             if (string.IsNullOrWhiteSpace(req.Text))
                 return Results.BadRequest(new { error = "text is required" });
 
