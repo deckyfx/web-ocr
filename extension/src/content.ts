@@ -54,7 +54,7 @@ function init(): void {
     else if (msg.type === "ocr-error")        showError(msg.message);
     else if (msg.type === "explain-result")   showExplain(msg.tokens, msg.definitions, msg.mode);
     else if (msg.type === "explain-error")    showExplainError(msg.message);
-    else if (msg.type === "job-result-ready") appendJobImage((msg as JobResultReadyMsg).resultImageDataUrl);
+    else if (msg.type === "job-result-ready") appendJobImage(msg.resultImageDataUrl);
   });
 
   // Engine iframe messages (postMessage from engine.html)
@@ -312,6 +312,7 @@ function appendJobImage(resultImageDataUrl: string): void {
   if (!resultPanelEl) return;
   const inner = resultPanelEl.querySelector<HTMLElement>(".socr-panel-inner");
   if (!inner) return;
+  inner.querySelector(".socr-job-image")?.remove();
   const section = document.createElement("div");
   section.className = "socr-job-image";
   section.innerHTML = `

@@ -226,6 +226,7 @@ export function StudioPage() {
       await rerenderJob(params.id, bubblePadding());
       await pollUntilDone();
       await refetchBubbles();
+      setResultImageVersion((v) => v + 1);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Re-render failed");
     } finally {

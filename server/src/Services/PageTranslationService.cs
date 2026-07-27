@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using SkiaSharp;
 using WebOcrServer.Data;
@@ -237,8 +238,6 @@ public sealed class PageTranslationService(
         var originalPath = Path.Combine(config.JobsDir, jobId, "original.png");
         if (!File.Exists(originalPath)) throw new FileNotFoundException("Original image not found for job", originalPath);
 
-        var imagePng = await File.ReadAllBytesAsync(originalPath, ct);
-
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
@@ -251,17 +250,23 @@ public sealed class PageTranslationService(
             new BubbleBox(l.BubbleX, l.BubbleY, l.BubbleW, l.BubbleH, l.Confidence),
             l.SourceText, l.TranslatedText, l.FontFamily, l.FontSizeOverride)).ToList();
 
-        var resultPng = await Task.Run(() => typesetter.RenderTranslations(imagePng, translations, padding), ct);
-
-        var resultPath = Path.Combine(config.JobsDir, jobId, "result.png");
-        await File.WriteAllBytesAsync(resultPath, resultPng, ct);
-
-        var job = await db.PageTranslationJobs.FindAsync(jobId);
-        if (job is not null)
+        var imgLock = GetImageLock(jobId);
+        await imgLock.WaitAsync(ct);
+        try
         {
-            job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
-            await db.SaveChangesAsync(ct);
+            var imagePng  = await File.ReadAllBytesAsync(originalPath, ct);
+            var resultPng = await Task.Run(() => typesetter.RenderTranslations(imagePng, translations, padding), ct);
+            var resultPath = Path.Combine(config.JobsDir, jobId, "result.png");
+            await File.WriteAllBytesAsync(resultPath, resultPng, ct);
+
+            var job = await db.PageTranslationJobs.FindAsync(jobId);
+            if (job is not null)
+            {
+                job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
+                await db.SaveChangesAsync(ct);
+            }
         }
+        finally { imgLock.Release(); }
     }
 
     // ── Public helpers used by PortalRoutes ───────────────────────────────────
@@ -340,27 +345,32 @@ public sealed class PageTranslationService(
             .FirstOrDefaultAsync(l => l.JobId == jobId && l.BubbleIndex == bubbleIndex, ct)
             ?? throw new KeyNotFoundException($"Bubble {bubbleIndex} not found in job {jobId}");
 
-        var jobDir      = Path.Combine(config.JobsDir, jobId);
-        var resultPath  = Path.Combine(jobDir, "result.png");
+        var jobDir       = Path.Combine(config.JobsDir, jobId);
+        var resultPath   = Path.Combine(jobDir, "result.png");
         var originalPath = Path.Combine(jobDir, "original.png");
 
-        if (!File.Exists(resultPath)) File.Copy(originalPath, resultPath);
-
-        var imagePng = await File.ReadAllBytesAsync(resultPath, ct);
         var box = padding > 0
             ? new BubbleBox(bubble.BubbleX + padding, bubble.BubbleY + padding,
                 Math.Max(1, bubble.BubbleW - 2 * padding), Math.Max(1, bubble.BubbleH - 2 * padding), bubble.Confidence)
             : new BubbleBox(bubble.BubbleX, bubble.BubbleY, bubble.BubbleW, bubble.BubbleH, bubble.Confidence);
 
-        var resultPng = await Task.Run(() => typesetter.WhiteFillBubble(imagePng, box), ct);
-        await File.WriteAllBytesAsync(resultPath, resultPng, ct);
-
-        var job = await db.PageTranslationJobs.FindAsync(jobId);
-        if (job is not null && string.IsNullOrEmpty(job.ResultImagePath))
+        var imgLock = GetImageLock(jobId);
+        await imgLock.WaitAsync(ct);
+        try
         {
-            job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
-            await db.SaveChangesAsync(ct);
+            if (!File.Exists(resultPath)) File.Copy(originalPath, resultPath);
+            var imagePng  = await File.ReadAllBytesAsync(resultPath, ct);
+            var resultPng = await Task.Run(() => typesetter.WhiteFillBubble(imagePng, box), ct);
+            await File.WriteAllBytesAsync(resultPath, resultPng, ct);
+
+            var job = await db.PageTranslationJobs.FindAsync(jobId);
+            if (job is not null && string.IsNullOrEmpty(job.ResultImagePath))
+            {
+                job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
+                await db.SaveChangesAsync(ct);
+            }
         }
+        finally { imgLock.Release(); }
     }
 
     /// <summary>
@@ -376,27 +386,39 @@ public sealed class PageTranslationService(
             .FirstOrDefaultAsync(l => l.JobId == jobId && l.BubbleIndex == bubbleIndex, ct)
             ?? throw new KeyNotFoundException($"Bubble {bubbleIndex} not found in job {jobId}");
 
-        var jobDir      = Path.Combine(config.JobsDir, jobId);
-        var resultPath  = Path.Combine(jobDir, "result.png");
+        var jobDir       = Path.Combine(config.JobsDir, jobId);
+        var resultPath   = Path.Combine(jobDir, "result.png");
         var originalPath = Path.Combine(jobDir, "original.png");
 
-        if (!File.Exists(resultPath)) File.Copy(originalPath, resultPath);
-
-        var imagePng = await File.ReadAllBytesAsync(resultPath, ct);
         var t = new BubbleTranslation(
             new BubbleBox(bubble.BubbleX, bubble.BubbleY, bubble.BubbleW, bubble.BubbleH, bubble.Confidence),
             bubble.SourceText, bubble.TranslatedText, bubble.FontFamily, bubble.FontSizeOverride);
 
-        var resultPng = await Task.Run(() => typesetter.RenderOneBubble(imagePng, t, padding), ct);
-        await File.WriteAllBytesAsync(resultPath, resultPng, ct);
-
-        var job = await db.PageTranslationJobs.FindAsync(jobId);
-        if (job is not null && string.IsNullOrEmpty(job.ResultImagePath))
+        var imgLock = GetImageLock(jobId);
+        await imgLock.WaitAsync(ct);
+        try
         {
-            job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
-            await db.SaveChangesAsync(ct);
+            if (!File.Exists(resultPath)) File.Copy(originalPath, resultPath);
+            var imagePng  = await File.ReadAllBytesAsync(resultPath, ct);
+            var resultPng = await Task.Run(() => typesetter.RenderOneBubble(imagePng, t, padding), ct);
+            await File.WriteAllBytesAsync(resultPath, resultPng, ct);
+
+            var job = await db.PageTranslationJobs.FindAsync(jobId);
+            if (job is not null && string.IsNullOrEmpty(job.ResultImagePath))
+            {
+                job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
+                await db.SaveChangesAsync(ct);
+            }
         }
+        finally { imgLock.Release(); }
     }
+
+    // ── Per-job image lock (serialises rerender/reinpaint/repatch) ───────────
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ImageLocks = new();
+
+    private static SemaphoreSlim GetImageLock(string jobId) =>
+        ImageLocks.GetOrAdd(jobId, _ => new SemaphoreSlim(1, 1));
 
     // ── DB helpers ────────────────────────────────────────────────────────────
 

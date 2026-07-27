@@ -273,11 +273,11 @@ export function BubbleEditor(props: BubbleEditorProps): JSX.Element {
                     value={fontSizeOverride()}
                     onInput={(e) =>
                       setFontSizeOverride(
-                        parseInt(e.currentTarget.value, 10) || 0,
+                        Math.min(72, Math.max(0, parseInt(e.currentTarget.value, 10) || 0)),
                       )
                     }
                     onChange={(e) => {
-                      const val = parseInt(e.currentTarget.value, 10) || 0;
+                      const val = Math.min(72, Math.max(0, parseInt(e.currentTarget.value, 10) || 0));
                       setFontSizeOverride(val);
                       props.onUpdate({ fontSizeOverride: val });
                     }}

@@ -495,8 +495,8 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                     {(handle) => {
                       const [fx, fy] = HANDLE_OFFSETS[handle];
                       const hSvgPos = () => {
-                        const r = rect();
-                        return toSvg(r.x + fx * r.w, r.y + fy * r.h);
+                        const sr = svgRect();
+                        return { x: sr.x + fx * sr.w, y: sr.y + fy * sr.h };
                       };
                       return (
                         <rect
