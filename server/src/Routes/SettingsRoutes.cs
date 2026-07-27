@@ -1,5 +1,8 @@
 namespace WebOcrServer;
 
+/// <summary>Narrow patch body for updating only the preferred translation engine.</summary>
+public record EngineUpdateRequest(string Engine);
+
 public static class SettingsRoutes
 {
     public static void MapSettingsRoutes(this WebApplication app)
@@ -17,6 +20,18 @@ public static class SettingsRoutes
 
             var saved = await store.UpdateAsync(updated);
             return Results.Ok(saved);
+        });
+
+        // PATCH /api/settings/engine — updates only preferred_translation_engine without
+        // touching other settings, avoiding the read-modify-write footgun on env-derived values.
+        app.MapMethods("/api/settings/engine", ["PATCH"], async (
+            EngineUpdateRequest req, ModelSettingsStore store) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Engine))
+                return Results.BadRequest(new { error = "engine is required" });
+
+            var saved = await store.UpdateEngineAsync(req.Engine);
+            return Results.Ok(new { preferred_translation_engine = saved.PreferredTranslationEngine });
         });
     }
 }

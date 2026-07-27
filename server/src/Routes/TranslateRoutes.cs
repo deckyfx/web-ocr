@@ -11,16 +11,26 @@ public static class TranslateRoutes
             BootState              boot,
             InferenceQueue         queue,
             ModelSettingsStore     modelSettings,
+            AppConfig              config,
             IServiceScopeFactory   scopeFactory,
             ILogger<TranslateService> logger) =>
         {
-            if (!boot.TranslateReady)
-                return Results.Json(new { error = "Translate model not ready" }, statusCode: 503);
-
             if (string.IsNullOrWhiteSpace(req.Text))
                 return Results.BadRequest(new { error = "text is required" });
 
-            var engine = req.TranslateEngine ?? modelSettings.Current.PreferredTranslationEngine;
+            var rawEngine = string.IsNullOrWhiteSpace(req.TranslateEngine)
+                ? modelSettings.Current.PreferredTranslationEngine
+                : req.TranslateEngine;
+
+            // Resolve "auto": prefer DeepL when configured, fall back to local.
+            var engine = rawEngine.Equals("auto", StringComparison.OrdinalIgnoreCase)
+                ? (config.DeeplAvailable ? "deepl" : "local")
+                : rawEngine;
+
+            // Only require the local model when the chosen engine is not an external API (DeepL).
+            var needsLocal = !engine.Equals("deepl", StringComparison.OrdinalIgnoreCase);
+            if (needsLocal && !boot.TranslateReady)
+                return Results.Json(new { error = "Translate model not ready" }, statusCode: 503);
 
             var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             await queue.Writer.WriteAsync(new TranslateJob(req.Text, engine, tcs));

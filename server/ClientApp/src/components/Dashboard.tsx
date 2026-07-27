@@ -30,21 +30,6 @@ interface HealthInfo {
   models:                       Record<string, ModelStatus>;
 }
 
-interface AllModelSettings {
-  ocr:       ModelEntry;
-  translate: ModelEntry;
-  inpaint:   ModelEntry;
-  bubble:    ModelEntry;
-  preferred_translation_engine: string;
-}
-
-interface ModelEntry {
-  repo:    string;
-  dir:     string;
-  enabled: boolean;
-  files:   string;
-}
-
 // ── Sub-components ───────────────────────────────────────────────────────────
 
 function StatusBadge(props: { ok: boolean | null; label: string }) {
@@ -98,6 +83,7 @@ export function Dashboard() {
   onMount(fetchHealth);
 
   function fetchHealth() {
+    setErr(null);
     fetch("/health")
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -126,23 +112,20 @@ export function Dashboard() {
   async function changeEngine(engine: string) {
     const h = health();
     if (!h || saving()) return;
+    setErr(null);
     setSaving(true);
     try {
-      // Fetch current settings to avoid overwriting other fields
-      const settingsRes = await fetch("/api/settings");
-      if (!settingsRes.ok) throw new Error("Failed to load settings");
-      const settings = (await settingsRes.json()) as AllModelSettings;
-      settings.preferred_translation_engine = engine;
-
-      const putRes = await fetch("/api/settings", {
-        method:  "PUT",
+      // Narrow PATCH endpoint updates only preferred_translation_engine,
+      // avoiding a read-modify-write cycle that would persist env-derived values to disk.
+      const res = await fetch("/api/settings/engine", {
+        method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(settings),
+        body:    JSON.stringify({ engine }),
       });
-      if (!putRes.ok) throw new Error("Failed to save settings");
+      if (!res.ok) throw new Error(`Failed to save settings (HTTP ${res.status})`);
       setSavedEngine(engine);
     } catch (e) {
-      console.error("Failed to update translation engine:", e);
+      setErr(String(e));
     } finally {
       setSaving(false);
     }

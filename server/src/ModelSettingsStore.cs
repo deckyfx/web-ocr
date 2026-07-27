@@ -119,6 +119,38 @@ public sealed class ModelSettingsStore
         finally { _writeLock.Release(); }
     }
 
+    /// <summary>
+    /// Atomically updates only the preferred translation engine and persists to disk.
+    /// Clones the current settings inside the write lock to avoid a read-modify-write race.
+    /// </summary>
+    public async Task<AllModelSettings> UpdateEngineAsync(string engine)
+    {
+        if (string.IsNullOrWhiteSpace(engine))
+            throw new ArgumentException("Engine is required.", nameof(engine));
+        engine = engine.Trim();
+
+        await _writeLock.WaitAsync();
+        try
+        {
+            var current = _current;
+            var updated = new AllModelSettings
+            {
+                Ocr       = current.Ocr,
+                Translate = current.Translate,
+                Inpaint   = current.Inpaint,
+                Bubble    = current.Bubble,
+                PreferredTranslationEngine = engine,
+            };
+            var dir = Path.GetDirectoryName(_filePath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            await File.WriteAllTextAsync(_filePath, JsonSerializer.Serialize(updated, JsonOpts));
+            _current = updated;
+            _logger.LogInformation("[ModelSettings] Persisted to {Path}", _filePath);
+            return _current;
+        }
+        finally { _writeLock.Release(); }
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /// <summary>Build settings from env vars, using AppConfig-derived paths as dir defaults.</summary>
@@ -193,7 +225,15 @@ public sealed class ModelSettingsStore
             Translate = MergeEntry(env.Translate,  file.Translate,  "TRANSLATE_MODEL_REPO", "TRANSLATE_MODELS_DIR", "TRANSLATE_MODEL_ENABLED", "TRANSLATE_MODEL_FILES"),
             Inpaint   = MergeEntry(env.Inpaint,    file.Inpaint,    "INPAINT_MODEL_REPO",   "INPAINT_MODELS_DIR",   "INPAINT_MODEL_ENABLED",   "INPAINT_MODEL_FILES"),
             Bubble    = MergeEntry(env.Bubble,     file.Bubble,     "BUBBLE_MODEL_REPO",    "BUBBLE_MODELS_DIR",    "BUBBLE_MODEL_ENABLED",    "BUBBLE_MODEL_FILES"),
-            PreferredTranslationEngine = file.PreferredTranslationEngine,
+            // Env wins; fall back to file (only if non-empty), then the env-derived default.
+            // IsNullOrWhiteSpace guards against whitespace-only env vars being treated as set.
+            PreferredTranslationEngine =
+                Environment.GetEnvironmentVariable("PREFERRED_TRANSLATION_ENGINE") is { } rawPe
+                    && !string.IsNullOrWhiteSpace(rawPe)
+                    ? rawPe.Trim()
+                    : string.IsNullOrWhiteSpace(file.PreferredTranslationEngine)
+                        ? env.PreferredTranslationEngine
+                        : file.PreferredTranslationEngine,
         };
     }
 
