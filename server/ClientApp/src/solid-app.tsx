@@ -25,10 +25,7 @@ const ChapterPage = lazy(() =>
 function App() {
   return (
     <HashRouter>
-      <Route
-        path="/"
-        component={(props) => <Layout>{props.children}</Layout>}
-      >
+      <Route path="/" component={Layout}>
         <Route path="/" component={Dashboard} />
         <Route path="/jobs" component={JobsListPage} />
         <Route path="/jobs/:id" component={StudioPage} />
@@ -66,3 +63,8 @@ declare global {
     };
   }
 }
+
+// Static Blazor page — auto-mount into #solid-root; app.js runs after the
+// div is already in the DOM so no DOMContentLoaded wait is needed.
+const solidRoot = document.getElementById("solid-root");
+if (solidRoot) window.AppBridge.mount(solidRoot);

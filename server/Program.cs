@@ -74,20 +74,27 @@ app.Lifetime.ApplicationStarted.Register(() =>
         ? $"port {port}"
         : $"socket {socketPath}";
 
-    Console.WriteLine();
-    Console.WriteLine("┌─────────────────────────────────────────────────────────────────┐");
-    Console.WriteLine($"│  Web OCR Server  v{version,-47}│");
-    Console.WriteLine("│                                                                 │");
-    Console.WriteLine($"│  Listening on  {listenInfo,-51}│");
+    var lines = new List<string>
+    {
+        $"  Web OCR Server  v{version}",
+        "",
+        $"  Listening on  {listenInfo}",
+    };
     if (string.IsNullOrEmpty(socketPath))
     {
-        Console.WriteLine($"│  Dashboard     http://localhost:{port,-35}│");
+        lines.Add($"  Dashboard     http://localhost:{port}");
         foreach (var ip in lanIps)
-            Console.WriteLine($"│                http://{ip}:{port,-41}│");
+            lines.Add($"                http://{ip}:{port}");
     }
-    Console.WriteLine("│                                                                 │");
-    Console.WriteLine("│  [Boot] Server is ready.                                        │");
-    Console.WriteLine("└─────────────────────────────────────────────────────────────────┘");
+    lines.Add("");
+    lines.Add("  [Boot] Server is ready.");
+
+    int w = Math.Max(65, lines.Max(l => l.Length) + 2);
+    Console.WriteLine();
+    Console.WriteLine($"┌{new string('─', w)}┐");
+    foreach (var line in lines)
+        Console.WriteLine($"│{line.PadRight(w)}│");
+    Console.WriteLine($"└{new string('─', w)}┘");
     Console.WriteLine();
 });
 
