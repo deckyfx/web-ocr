@@ -218,6 +218,7 @@ public static class PortalRoutes
             PageTranslationService pipeline,
             AppDbContext           db,
             InferenceQueue         queue,
+            ModelSettingsStore     modelSettings,
             ILoggerFactory         loggerFactory) =>
         {
             var job = await db.PageTranslationJobs.FindAsync(id);
@@ -255,7 +256,7 @@ public static class PortalRoutes
 
                         // Translate
                         var trTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-                        await queue.Writer.WriteAsync(new TranslateJob(source, "local", trTcs));
+                        await queue.Writer.WriteAsync(new TranslateJob(source, modelSettings.Current.PreferredTranslationEngine, trTcs));
                         var trResult    = (TranslateResponse)await trTcs.Task;
                         b.SourceText    = source;
                         b.TranslatedText = trResult.Translation;

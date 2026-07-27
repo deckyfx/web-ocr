@@ -10,6 +10,7 @@ public static class TranslateRoutes
             TranslateRequest       req,
             BootState              boot,
             InferenceQueue         queue,
+            ModelSettingsStore     modelSettings,
             IServiceScopeFactory   scopeFactory,
             ILogger<TranslateService> logger) =>
         {
@@ -19,7 +20,7 @@ public static class TranslateRoutes
             if (string.IsNullOrWhiteSpace(req.Text))
                 return Results.BadRequest(new { error = "text is required" });
 
-            var engine = req.TranslateEngine ?? "local";
+            var engine = req.TranslateEngine ?? modelSettings.Current.PreferredTranslationEngine;
 
             var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             await queue.Writer.WriteAsync(new TranslateJob(req.Text, engine, tcs));

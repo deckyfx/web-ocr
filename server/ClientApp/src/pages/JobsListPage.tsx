@@ -5,9 +5,11 @@ import {
   Clock,
   Image,
   Layers,
+  Trash2,
   XCircle,
 } from "lucide-solid";
-import { jobOriginalUrl, jobResultUrl, listJobs } from "../api";
+import { deleteJob, jobOriginalUrl, jobResultUrl, listJobs } from "../api";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import type { PageTranslationJob } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -42,7 +44,11 @@ export function StatusBadge(props: { status: PageTranslationJob["status"] }) {
 // Job card
 // ---------------------------------------------------------------------------
 
-function JobCard(props: { job: PageTranslationJob; onClick: () => void }) {
+function JobCard(props: {
+  job: PageTranslationJob;
+  onClick: () => void;
+  onDelete: (e: MouseEvent) => void;
+}) {
   const thumbSrc = () =>
     props.job.resultImagePath
       ? jobResultUrl(props.job.id)
@@ -63,6 +69,18 @@ function JobCard(props: { job: PageTranslationJob; onClick: () => void }) {
         />
         <div class="absolute right-2 top-2">
           <StatusBadge status={props.job.status} />
+        </div>
+        {/* Delete icon — shown on hover. Must be a div, not button, because it's nested inside the card button. */}
+        <div
+          role="button"
+          tabIndex={0}
+          class="absolute left-2 top-2 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-white/80 text-slate-500 opacity-0 shadow-sm ring-1 ring-slate-200 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+          title="Delete job"
+          aria-label="Delete job"
+          onClick={props.onDelete}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") props.onDelete(e as unknown as MouseEvent); }}
+        >
+          <Trash2 class="h-3.5 w-3.5" />
         </div>
       </div>
 
@@ -99,7 +117,7 @@ export function JobsListPage() {
   const [statusFilter, setStatusFilter] = createSignal("");
   const [search, setSearch] = createSignal("");
 
-  const [jobs] = createResource(statusFilter, (status) =>
+  const [jobs, { refetch }] = createResource(statusFilter, (status) =>
     listJobs({ pageSize: 100, status: status || undefined }),
   );
 
@@ -109,6 +127,28 @@ export function JobsListPage() {
       (j) => !q || j.title.toLowerCase().includes(q),
     );
   };
+
+  // Delete confirm state
+  const [pendingDeleteId, setPendingDeleteId] = createSignal<string | null>(null);
+  const [isDeleting, setIsDeleting] = createSignal(false);
+
+  function requestDelete(id: string, e: MouseEvent): void {
+    e.stopPropagation();
+    setPendingDeleteId(id);
+  }
+
+  async function confirmDelete(): Promise<void> {
+    const id = pendingDeleteId();
+    if (!id) return;
+    setIsDeleting(true);
+    try {
+      await deleteJob(id);
+      setPendingDeleteId(null);
+      refetch();
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   return (
     <div class="min-h-screen px-6 py-8">
@@ -174,12 +214,24 @@ export function JobsListPage() {
                 <JobCard
                   job={job}
                   onClick={() => navigate(`/jobs/${job.id}`)}
+                  onDelete={(e) => requestDelete(job.id, e)}
                 />
               )}
             </For>
           </div>
         </Show>
       </Show>
+
+      {/* Delete confirm dialog */}
+      <ConfirmDialog
+        open={pendingDeleteId() !== null}
+        title="Delete job"
+        message="This will permanently delete the job, its images, and all bubble data. This cannot be undone."
+        confirmLabel="Delete"
+        loading={isDeleting()}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

@@ -18,18 +18,21 @@
 
   <ItemGroup>
     <!-- Pin transitive SQLitePCLRaw to fix GHSA-2m69-gcr7-jv3q (vuln in 2.1.10) -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.16.16" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.*">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.ML.OnnxRuntime"             Version="1.26.0" />
-    <PackageReference Include="Microsoft.ML.Tokenizers"              Version="0.22.*" />
-    <PackageReference Include="LibNMeCab"                            Version="0.10.*" />
-    <PackageReference Include="LibNMeCab.IpaDicBin"                 Version="0.10.*" />
-    <PackageReference Include="SkiaSharp"                            Version="3.119.4" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux"         Version="3.119.4" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.26.0" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="0.22.*" />
+    <PackageReference Include="LibNMeCab" Version="0.10.*" />
+    <PackageReference Include="LibNMeCab.IpaDicBin" Version="0.10.*" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
   </ItemGroup>
 
 </Project>

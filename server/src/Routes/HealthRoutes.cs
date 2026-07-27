@@ -35,12 +35,12 @@ public static class HealthRoutes
                 (boot.BubbleEnabled   && !boot.BubbleReady);
 
             return Results.Ok(new HealthResponse(
-                Status:             boot.IsReady ? (optionalsMissing ? "degraded" : "ok") : "starting",
-                Version:            version,
-                OcrModelsDir:       ms.Ocr.Dir,
-                TranslateModelsDir: ms.Translate.Dir,
-                DeeplAvailable:     config.DeeplAvailable,
-                Models:             models));
+                Status:                      boot.IsReady ? (optionalsMissing ? "degraded" : "ok") : "starting",
+                Version:                     version,
+                DataDir:                     config.DataDir,
+                DeeplAvailable:              config.DeeplAvailable,
+                PreferredTranslationEngine:  ms.PreferredTranslationEngine,
+                Models:                      models));
         });
     }
 }

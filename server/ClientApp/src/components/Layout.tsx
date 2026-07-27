@@ -1,16 +1,18 @@
 import { type RouteSectionProps, A } from "@solidjs/router";
-import { BookOpen, Image, LayoutDashboard } from "lucide-solid";
+import { BookOpen, FileCode2, Home, Image, ServerCog } from "lucide-solid";
 
 interface NavItem {
   href: string;
   label: string;
-  Icon: typeof LayoutDashboard;
+  Icon: typeof Home;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/jobs", label: "Jobs", Icon: Image },
-  { href: "/library", label: "Library", Icon: BookOpen },
+  { href: "/",        label: "Home",          Icon: Home },
+  { href: "/status",  label: "Server Status", Icon: ServerCog },
+  { href: "/openapi", label: "OpenAPI",       Icon: FileCode2 },
+  { href: "/library", label: "Library",       Icon: BookOpen },
+  { href: "/jobs",    label: "Jobs",          Icon: Image },
 ];
 
 export function Layout(props: RouteSectionProps) {

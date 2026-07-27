@@ -25,6 +25,7 @@ public sealed class PageTranslationService(
     TypesettingService              typesetter,
     InferenceQueue                  queue,
     AppConfig                       config,
+    ModelSettingsStore              modelSettings,
     IServiceScopeFactory            scopeFactory,
     ILogger<PageTranslationService> logger)
 {
@@ -122,7 +123,7 @@ public sealed class PageTranslationService(
             progress.Report(new("translating", 0.45 + 0.20 * (double)i / bubbles.Count));
 
             var translateTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-            await queue.Writer.WriteAsync(new TranslateJob(sourceText, "local", translateTcs), ct);
+            await queue.Writer.WriteAsync(new TranslateJob(sourceText, modelSettings.Current.PreferredTranslationEngine, translateTcs), ct);
 
             string translated;
             try

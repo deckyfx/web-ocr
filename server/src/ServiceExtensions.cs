@@ -108,6 +108,9 @@ public static class ServiceExtensions
         // Blazor with Interactive Server mode (required for IJSRuntime / JS Interop)
         builder.Services.AddRazorComponents()
                         .AddInteractiveServerComponents();
+
+        // OpenAPI spec served at /openapi/v1.json; Scalar UI at /scalar/v1
+        builder.Services.AddOpenApi();
     }
 
     public static WebApplication MapWebOcrRoutes(this WebApplication app)

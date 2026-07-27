@@ -1,3 +1,4 @@
+using Scalar.AspNetCore;
 using WebOcrServer;
 using WebOcrServer.Components;
 
@@ -55,6 +56,8 @@ app.UseAntiforgery();
 // Map routes BEFORE BootBackgroundService completes so /health responds during model download/init
 // (health returns "starting" until BootState.IsReady is set)
 app.MapWebOcrRoutes();
+app.MapOpenApi();
+app.MapScalarApiReference();
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
 
