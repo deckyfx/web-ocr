@@ -1,5 +1,4 @@
-import { type ParentProps } from "solid-js";
-import { A } from "@solidjs/router";
+import { type RouteSectionProps, A } from "@solidjs/router";
 import { BookOpen, Image, LayoutDashboard } from "lucide-solid";
 
 interface NavItem {
@@ -14,7 +13,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/library", label: "Library", Icon: BookOpen },
 ];
 
-export function Layout(props: ParentProps) {
+export function Layout(props: RouteSectionProps) {
   return (
     <div class="flex h-screen bg-slate-50 text-slate-800">
       {/* Sidebar */}

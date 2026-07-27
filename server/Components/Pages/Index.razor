@@ -1,29 +1,4 @@
 @page "/"
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
-@inject IJSRuntime JS
-@implements IAsyncDisposable
 
-@* SolidJS mounts into this div; Blazor manages its lifetime via JS Interop *@
-<div @ref="_root"></div>
-
-@code {
-    private ElementReference _root;
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-            await JS.InvokeVoidAsync("AppBridge.mount", _root);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        try
-        {
-            await JS.InvokeVoidAsync("AppBridge.unmount", _root);
-        }
-        catch (JSDisconnectedException)
-        {
-            // Circuit closed (page navigated away) — SolidJS already disposed
-        }
-    }
-}
+@* Static rendering — SolidJS mounts itself into #solid-root on script load *@
+<div id="solid-root"></div>
