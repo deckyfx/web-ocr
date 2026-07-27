@@ -145,13 +145,15 @@ public static class PortalRoutes
                 .FirstOrDefaultAsync(l => l.JobId == jobId && l.BubbleIndex == bubbleIndex);
             if (bubble is null) return Results.NotFound();
 
-            if (req.BubbleX        is not null) bubble.BubbleX        = req.BubbleX.Value;
-            if (req.BubbleY        is not null) bubble.BubbleY        = req.BubbleY.Value;
-            if (req.BubbleW        is not null) bubble.BubbleW        = req.BubbleW.Value;
-            if (req.BubbleH        is not null) bubble.BubbleH        = req.BubbleH.Value;
-            if (req.SourceText     is not null) bubble.SourceText     = req.SourceText;
-            if (req.TranslatedText is not null) bubble.TranslatedText = req.TranslatedText;
-            if (req.IsExcluded     is not null) bubble.IsExcluded     = req.IsExcluded.Value;
+            if (req.BubbleX         is not null) bubble.BubbleX         = req.BubbleX.Value;
+            if (req.BubbleY         is not null) bubble.BubbleY         = req.BubbleY.Value;
+            if (req.BubbleW         is not null) bubble.BubbleW         = req.BubbleW.Value;
+            if (req.BubbleH         is not null) bubble.BubbleH         = req.BubbleH.Value;
+            if (req.SourceText      is not null) bubble.SourceText      = req.SourceText;
+            if (req.TranslatedText  is not null) bubble.TranslatedText  = req.TranslatedText;
+            if (req.IsExcluded      is not null) bubble.IsExcluded      = req.IsExcluded.Value;
+            if (req.FontFamily      is not null) bubble.FontFamily      = req.FontFamily == "" ? null : req.FontFamily;
+            if (req.FontSizeOverride is not null) bubble.FontSizeOverride = req.FontSizeOverride == 0 ? null : req.FontSizeOverride;
 
             bubble.LastEditedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
@@ -168,6 +170,52 @@ public static class PortalRoutes
             db.PageTranslationLogs.Remove(bubble);
             await db.SaveChangesAsync();
             return Results.NoContent();
+        });
+
+        // ── Per-bubble actions (synchronous — single bubble is fast) ──────────
+
+        g.MapPost("/jobs/{jobId}/bubbles/{bubbleIndex:int}/reocr", async (
+            string jobId, int bubbleIndex, PageTranslationService pipeline) =>
+        {
+            try
+            {
+                var updated = await pipeline.ReocrBubbleAsync(jobId, bubbleIndex);
+                return Results.Ok(updated);
+            }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+        });
+
+        g.MapPost("/jobs/{jobId}/bubbles/{bubbleIndex:int}/retranslate", async (
+            string jobId, int bubbleIndex, PageTranslationService pipeline) =>
+        {
+            try
+            {
+                var updated = await pipeline.RetranslateBubbleAsync(jobId, bubbleIndex);
+                return Results.Ok(updated);
+            }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+        });
+
+        g.MapPost("/jobs/{jobId}/bubbles/{bubbleIndex:int}/reinpaint", async (
+            string jobId, int bubbleIndex, BubblePaddingRequest? body, PageTranslationService pipeline) =>
+        {
+            try
+            {
+                await pipeline.ReinpaintBubbleAsync(jobId, bubbleIndex, Math.Max(0, body?.Padding ?? 0));
+                return Results.Ok();
+            }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+        });
+
+        g.MapPost("/jobs/{jobId}/bubbles/{bubbleIndex:int}/repatch", async (
+            string jobId, int bubbleIndex, BubblePaddingRequest? body, PageTranslationService pipeline) =>
+        {
+            try
+            {
+                await pipeline.RepatchBubbleAsync(jobId, bubbleIndex, Math.Max(0, body?.Padding ?? 0));
+                return Results.Ok();
+            }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
         });
 
         // ── Job actions (fire-and-forget; caller polls job status) ────────────
@@ -284,6 +332,7 @@ public static class PortalRoutes
 
         g.MapPost("/jobs/{id}/rerender", async (
             string                 id,
+            RerenderRequest?       body,
             PageTranslationService pipeline,
             AppDbContext           db,
             ILoggerFactory         loggerFactory) =>
@@ -291,6 +340,7 @@ public static class PortalRoutes
             var job = await db.PageTranslationJobs.FindAsync(id);
             if (job is null) return Results.NotFound();
 
+            int padding = Math.Max(0, body?.Padding ?? 0);
             var logger = loggerFactory.CreateLogger("PortalRerender");
             _ = Task.Run(async () =>
             {
@@ -301,7 +351,7 @@ public static class PortalRoutes
                     var j   = await db2.PageTranslationJobs.FindAsync(id);
                     if (j is not null) { j.Status = "processing"; await db2.SaveChangesAsync(); }
 
-                    await pipeline.RerenderAsync(id);
+                    await pipeline.RerenderAsync(id, padding);
 
                     j = await db2.PageTranslationJobs.FindAsync(id);
                     if (j is not null) { j.Status = "done"; await db2.SaveChangesAsync(); }
@@ -464,10 +514,13 @@ public static class PortalRoutes
     // ── Request / Response records ────────────────────────────────────────────
 
     private record UpdateJobRequest(string? Title, int? ChapterId, int? PageOrder);
+    private record RerenderRequest(int Padding = 0);
+    private record BubblePaddingRequest(int Padding = 0);
     private record AddBubbleRequest(float X, float Y, float W, float H);
     private record UpdateBubbleRequest(
         float?  BubbleX, float? BubbleY, float? BubbleW, float? BubbleH,
-        string? SourceText, string? TranslatedText, bool? IsExcluded);
+        string? SourceText, string? TranslatedText, bool? IsExcluded,
+        string? FontFamily = null, int? FontSizeOverride = null);
     private record CreateVolumeRequest(string Title, string? Synopsis);
     private record UpdateVolumeRequest(string? Title, string? Synopsis, int? SortOrder);
     private record CreateChapterRequest(string Title, string ChapterNumber, int? VolumeId);

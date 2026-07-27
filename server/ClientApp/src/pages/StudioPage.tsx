@@ -17,7 +17,11 @@ import {
   jobOriginalUrl,
   jobResultUrl,
   redetectJob,
+  reocrBubble,
+  repatchBubble,
+  reinpaintBubble,
   rerenderJob,
+  retranslateBubble,
   retranslateJob,
   updateBubble,
 } from "../api";
@@ -59,6 +63,11 @@ export function StudioPage() {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isDeleting, setIsDeleting] = createSignal(false);
+  const [bubblePadding, setBubblePadding] = createSignal<number>(
+    parseInt(localStorage.getItem("studio-bubble-padding") ?? "0", 10),
+  );
+  // Incremented after reinpaint/repatch so result image URL cache-busts
+  const [resultImageVersion, setResultImageVersion] = createSignal(0);
 
   // Derived
   const bubbleList = () => bubbles() ?? [];
@@ -214,7 +223,7 @@ export function StudioPage() {
     setIsRerendering(true);
     setActionError(null);
     try {
-      await rerenderJob(params.id);
+      await rerenderJob(params.id, bubblePadding());
       await pollUntilDone();
       await refetchBubbles();
     } catch (err) {
@@ -225,6 +234,45 @@ export function StudioPage() {
   }
 
   // ---------------------------------------------------------------------------
+  // Per-bubble action handlers
+  // ---------------------------------------------------------------------------
+
+  async function handleBubbleReocr(): Promise<void> {
+    const b = selectedBubble();
+    if (!b) return;
+    const updated = await reocrBubble(params.id, b.bubbleIndex);
+    await refetchBubbles();
+    // Keep selection on the same bubble so BubbleEditor refreshes via reactive signal
+    setSelectedIndex(updated.bubbleIndex);
+  }
+
+  async function handleBubbleRetranslate(): Promise<void> {
+    const b = selectedBubble();
+    if (!b) return;
+    const updated = await retranslateBubble(params.id, b.bubbleIndex);
+    await refetchBubbles();
+    setSelectedIndex(updated.bubbleIndex);
+  }
+
+  async function handleBubbleReinpaint(): Promise<void> {
+    const b = selectedBubble();
+    if (!b) return;
+    await reinpaintBubble(params.id, b.bubbleIndex, bubblePadding());
+    setResultImageVersion((v) => v + 1);
+  }
+
+  async function handleBubbleRepatch(): Promise<void> {
+    const b = selectedBubble();
+    if (!b) return;
+    await repatchBubble(params.id, b.bubbleIndex, bubblePadding());
+    setResultImageVersion((v) => v + 1);
+  }
+
+  // Cache-busted result URL
+  const resultUrl = () =>
+    `${jobResultUrl(params.id)}?v=${resultImageVersion()}`;
+
+  // ---------------------------------------------------------------------------
   // Sub-components
   // ---------------------------------------------------------------------------
 
@@ -232,6 +280,7 @@ export function StudioPage() {
     bubbles: bubbleList(),
     selectedIndex: selectedIndex(),
     drawMode: isDrawMode(),
+    bubblePadding: bubblePadding(),
     onSelect: handleSelect,
     onMove: handleMove,
     onResize: handleResize,
@@ -294,6 +343,32 @@ export function StudioPage() {
                   : "Side by side"}
             </button>
           ))}
+        </div>
+
+        {/* Bubble display padding */}
+        <div class="ml-3 flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600">
+          <span class="select-none font-medium">Pad</span>
+          <button
+            class="flex h-5 w-5 items-center justify-center rounded hover:bg-slate-100 disabled:opacity-30"
+            disabled={bubblePadding() <= 0}
+            onClick={() => {
+              const v = Math.max(0, bubblePadding() - 1);
+              setBubblePadding(v);
+              localStorage.setItem("studio-bubble-padding", String(v));
+            }}
+            aria-label="Decrease bubble padding"
+          >−</button>
+          <span class="w-5 text-center tabular-nums">{bubblePadding()}</span>
+          <button
+            class="flex h-5 w-5 items-center justify-center rounded hover:bg-slate-100 disabled:opacity-30"
+            disabled={bubblePadding() >= 20}
+            onClick={() => {
+              const v = Math.min(20, bubblePadding() + 1);
+              setBubblePadding(v);
+              localStorage.setItem("studio-bubble-padding", String(v));
+            }}
+            aria-label="Increase bubble padding"
+          >+</button>
         </div>
 
         {/* Spacer */}
@@ -438,7 +513,7 @@ export function StudioPage() {
                   >
                     <BubbleCanvas
                       {...canvasProps()}
-                      imageUrl={jobResultUrl(params.id)}
+                      imageUrl={resultUrl()}
                       imageWidth={j().originalWidth}
                       imageHeight={j().originalHeight}
                     />
@@ -469,7 +544,7 @@ export function StudioPage() {
                       >
                         <BubbleCanvas
                           {...canvasProps()}
-                          imageUrl={jobResultUrl(params.id)}
+                          imageUrl={resultUrl()}
                           imageWidth={j().originalWidth}
                           imageHeight={j().originalHeight}
                         />
@@ -486,6 +561,10 @@ export function StudioPage() {
                 bubble={selectedBubble()}
                 onUpdate={handleBubbleUpdate}
                 onDelete={handleBubbleDelete}
+                onReocr={handleBubbleReocr}
+                onRetranslate={handleBubbleRetranslate}
+                onReinpaint={handleBubbleReinpaint}
+                onRepatch={handleBubbleRepatch}
               />
             </aside>
           </div>

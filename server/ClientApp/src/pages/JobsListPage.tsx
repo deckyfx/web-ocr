@@ -5,6 +5,7 @@ import {
   Clock,
   Image,
   Layers,
+  RefreshCw,
   Trash2,
   XCircle,
 } from "lucide-solid";
@@ -166,6 +167,13 @@ export function JobsListPage() {
           <Image class="h-5 w-5 text-violet-600" />
         </div>
         <h1 class="text-xl font-semibold text-slate-800">Jobs</h1>
+        <button
+          class="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-600 hover:shadow-sm hover:ring-1 hover:ring-slate-200"
+          title="Refresh"
+          onClick={() => refetch()}
+        >
+          <RefreshCw class={`h-4 w-4 ${jobs.loading ? "animate-spin" : ""}`} />
+        </button>
       </div>
 
       {/* Filters */}

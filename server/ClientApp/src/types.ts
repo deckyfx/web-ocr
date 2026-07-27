@@ -47,6 +47,8 @@ export interface TranslationBubble {
   translatedText: string;
   isManuallyAdded: boolean;
   isExcluded: boolean;
+  fontFamily?: string;
+  fontSizeOverride?: number;
   lastEditedAt?: string;
   createdAt: string;
 }

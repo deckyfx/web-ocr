@@ -7,6 +7,7 @@ import type {
   JishoEntry,
   PopupModeMsg,
   FetchImageMsg,
+  JobResultReadyMsg,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
@@ -168,6 +169,7 @@ async function runServerFlow(
       body: JSON.stringify({
         image: `data:image/jpeg;base64,${imageB64}`,
         translate_engine: settings.serverTranslation,
+        track_job: true,
       }),
     });
 
@@ -177,7 +179,7 @@ async function runServerFlow(
       return;
     }
 
-    const data = await res.json() as { text: string; translation?: string; elapsed_ms: number };
+    const data = await res.json() as { text: string; translation?: string; elapsed_ms: number; job_id?: string };
 
     sendToTab(tabId, {
       type: "ocr-result",
@@ -185,9 +187,62 @@ async function runServerFlow(
       translation: data.translation ?? null,
       elapsed_ms: Date.now() - start,
     } satisfies ToContentMsg);
+
+    // If the server started a background page-translation job, poll for its result
+    if (data.job_id) {
+      void pollJobResult(data.job_id, settings.serverUrl, tabId);
+    }
   } catch (e) {
     sendToTab(tabId, { type: "ocr-error", message: errMsg(e) });
   }
+}
+
+// ── Job result polling ────────────────────────────────────────────────────────
+
+async function pollJobResult(jobId: string, serverUrl: string, tabId: number): Promise<void> {
+  const base     = serverUrl.replace(/\/$/, "");
+  const deadline = Date.now() + 3 * 60 * 1000; // 3 min timeout
+
+  while (Date.now() < deadline) {
+    await sleep(2500);
+
+    try {
+      const res = await fetch(`${base}/jobs/${jobId}/status`);
+      if (!res.ok) break;
+
+      const data = await res.json() as { status: string };
+
+      if (data.status === "done") {
+        const imgRes = await fetch(`${base}/jobs/${jobId}/result-image`);
+        if (!imgRes.ok) break;
+
+        const blob    = await imgRes.blob();
+        const dataUrl = await blobToDataUrl(blob);
+
+        sendToTab(tabId, {
+          type: "job-result-ready",
+          jobId,
+          resultImageDataUrl: dataUrl,
+        } satisfies JobResultReadyMsg);
+        break;
+      }
+
+      if (data.status === "error") break;
+    } catch {
+      break;
+    }
+  }
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  const buf   = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary  = "";
+  const chunk = 8192;
+  for (let i = 0; i < bytes.byteLength; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return `data:${blob.type || "image/png"};base64,${btoa(binary)}`;
 }
 
 // ── Explain flow (server-only) ────────────────────────────────────────────────

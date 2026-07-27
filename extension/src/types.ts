@@ -78,6 +78,7 @@ export interface ExplainResultMsg   { type: "explain-result"; tokens: TokenInfo[
 export interface ExplainErrorMsg    { type: "explain-error"; message: string }
 
 export interface StartImageModeMsg  { type: "start-image-mode" }
+export interface JobResultReadyMsg  { type: "job-result-ready"; jobId: string; resultImageDataUrl: string }
 
 export type ToContentMsg =
   | StartSelectionMsg
@@ -86,7 +87,8 @@ export type ToContentMsg =
   | OcrErrorMsg
   | ExplainResultMsg
   | ExplainErrorMsg
-  | StartImageModeMsg;
+  | StartImageModeMsg
+  | JobResultReadyMsg;
 
 // ── Messages: content → background ───────────────────────────────────────────
 

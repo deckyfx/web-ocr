@@ -7,6 +7,7 @@ import type {
   TokenInfo,
   JishoEntry,
   OcrResultMsg,
+  JobResultReadyMsg,
   ToEngineMsg,
   FromEngineMsg,
   FetchImageMsg,
@@ -53,6 +54,7 @@ function init(): void {
     else if (msg.type === "ocr-error")        showError(msg.message);
     else if (msg.type === "explain-result")   showExplain(msg.tokens, msg.definitions, msg.mode);
     else if (msg.type === "explain-error")    showExplainError(msg.message);
+    else if (msg.type === "job-result-ready") appendJobImage((msg as JobResultReadyMsg).resultImageDataUrl);
   });
 
   // Engine iframe messages (postMessage from engine.html)
@@ -304,6 +306,19 @@ function showResult(msg: OcrResultMsg): void {
 
   repositionPanel(resultPanelEl, x, y, w, h);
   wirePanelButtons(resultPanelEl);
+}
+
+function appendJobImage(resultImageDataUrl: string): void {
+  if (!resultPanelEl) return;
+  const inner = resultPanelEl.querySelector<HTMLElement>(".socr-panel-inner");
+  if (!inner) return;
+  const section = document.createElement("div");
+  section.className = "socr-job-image";
+  section.innerHTML = `
+    <div class="socr-text-label">Translated Page</div>
+    <img class="socr-result-image" src="${escAttr(resultImageDataUrl)}" alt="Translated page" />
+  `;
+  inner.appendChild(section);
 }
 
 function showError(message: string): void {

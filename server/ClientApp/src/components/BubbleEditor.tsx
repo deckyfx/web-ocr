@@ -1,6 +1,6 @@
 import { createSignal, createEffect, Show, on } from "solid-js";
 import type { JSX } from "solid-js";
-import { Trash2 } from "lucide-solid";
+import { RefreshCw, ScanText, Sparkles, PaintBucket, Type, Trash2 } from "lucide-solid";
 import type { TranslationBubble } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -15,13 +15,37 @@ export type BubbleUpdatePatch = Partial<{
   sourceText: string;
   translatedText: string;
   isExcluded: boolean;
+  fontFamily: string;
+  fontSizeOverride: number;
 }>;
 
 export interface BubbleEditorProps {
   bubble: TranslationBubble | null;
   onUpdate: (patch: BubbleUpdatePatch) => void;
   onDelete: () => void;
+  onReocr?: () => Promise<void>;
+  onRetranslate?: () => Promise<void>;
+  onReinpaint?: () => Promise<void>;
+  onRepatch?: () => Promise<void>;
 }
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const FONT_FAMILIES = [
+  { value: "", label: "Auto (sans-serif)" },
+  { value: "sans-serif", label: "Sans-serif" },
+  { value: "serif", label: "Serif" },
+  { value: "monospace", label: "Monospace" },
+  { value: "Arial", label: "Arial" },
+  { value: "Verdana", label: "Verdana" },
+  { value: "Georgia", label: "Georgia" },
+  { value: "Impact", label: "Impact" },
+  { value: "Tahoma", label: "Tahoma" },
+  { value: "Comic Sans MS", label: "Comic Sans MS" },
+  { value: "Courier New", label: "Courier New" },
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,6 +88,15 @@ export function BubbleEditor(props: BubbleEditorProps): JSX.Element {
   const [sourceText, setSourceText] = createSignal("");
   const [translatedText, setTranslatedText] = createSignal("");
   const [isExcluded, setIsExcluded] = createSignal(false);
+  const [fontFamily, setFontFamily] = createSignal("");
+  const [fontSizeOverride, setFontSizeOverride] = createSignal(0);
+
+  // Per-bubble action loading states
+  const [isReocring, setIsReocring] = createSignal(false);
+  const [isRetranslating, setIsRetranslating] = createSignal(false);
+  const [isReinpainting, setIsReinpainting] = createSignal(false);
+  const [isRepatching, setIsRepatching] = createSignal(false);
+  const [actionError, setActionError] = createSignal<string | null>(null);
 
   // Reset form fields when bubble changes (selection OR external data update)
   createEffect(
@@ -79,9 +112,31 @@ export function BubbleEditor(props: BubbleEditorProps): JSX.Element {
         setSourceText(b.sourceText);
         setTranslatedText(b.translatedText);
         setIsExcluded(b.isExcluded);
+        setFontFamily(b.fontFamily ?? "");
+        setFontSizeOverride(b.fontSizeOverride ?? 0);
+        setActionError(null);
       },
     ),
   );
+
+  async function runAction(
+    setter: (v: boolean) => void,
+    action?: () => Promise<void>,
+  ): Promise<void> {
+    if (!action) return;
+    setter(true);
+    setActionError(null);
+    try {
+      await action();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setter(false);
+    }
+  }
+
+  const anyBusy = () =>
+    isReocring() || isRetranslating() || isReinpainting() || isRepatching();
 
   return (
     <div class="flex h-full flex-col">
@@ -181,6 +236,147 @@ export function BubbleEditor(props: BubbleEditorProps): JSX.Element {
                 }
               />
             </label>
+
+            {/* Render Style */}
+            <div>
+              <p class="mb-1.5 text-xs font-medium text-slate-500">
+                Render Style
+              </p>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex flex-col gap-0.5">
+                  <span class="text-[10px] text-slate-400">Font Family</span>
+                  <select
+                    class="rounded border border-slate-200 px-2 py-1 text-xs focus:border-violet-400 focus:outline-none"
+                    value={fontFamily()}
+                    onChange={(e) => {
+                      const val = e.currentTarget.value;
+                      setFontFamily(val);
+                      props.onUpdate({ fontFamily: val });
+                    }}
+                  >
+                    {FONT_FAMILIES.map((f) => (
+                      <option value={f.value}>{f.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label class="flex flex-col gap-0.5">
+                  <span class="text-[10px] text-slate-400">
+                    Font Size (0 = auto-fit)
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="72"
+                    step="1"
+                    class="rounded border border-slate-200 px-2 py-1 text-xs focus:border-violet-400 focus:outline-none"
+                    value={fontSizeOverride()}
+                    onInput={(e) =>
+                      setFontSizeOverride(
+                        parseInt(e.currentTarget.value, 10) || 0,
+                      )
+                    }
+                    onChange={(e) => {
+                      const val = parseInt(e.currentTarget.value, 10) || 0;
+                      setFontSizeOverride(val);
+                      props.onUpdate({ fontSizeOverride: val });
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Per-bubble actions */}
+            <div>
+              <p class="mb-1.5 text-xs font-medium text-slate-500">
+                Bubble Actions
+              </p>
+
+              <Show when={actionError()}>
+                {(msg) => (
+                  <div class="mb-2 flex items-start gap-1.5 rounded bg-red-50 px-2 py-1.5 text-xs text-red-700 ring-1 ring-inset ring-red-200">
+                    <span class="flex-1">{msg()}</span>
+                    <button
+                      onClick={() => setActionError(null)}
+                      class="shrink-0 hover:text-red-900"
+                      aria-label="Dismiss"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </Show>
+
+              <div class="grid grid-cols-2 gap-1">
+                {/* Re-OCR */}
+                <button
+                  onClick={() => runAction(setIsReocring, props.onReocr)}
+                  disabled={anyBusy() || !props.onReocr}
+                  class="flex items-center justify-center gap-1 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Re-run OCR on this bubble"
+                >
+                  <Show
+                    when={isReocring()}
+                    fallback={<ScanText class="h-3 w-3" />}
+                  >
+                    <RefreshCw class="h-3 w-3 animate-spin" />
+                  </Show>
+                  Re-OCR
+                </button>
+
+                {/* Re-translate */}
+                <button
+                  onClick={() =>
+                    runAction(setIsRetranslating, props.onRetranslate)
+                  }
+                  disabled={anyBusy() || !props.onRetranslate}
+                  class="flex items-center justify-center gap-1 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Re-translate current source text"
+                >
+                  <Show
+                    when={isRetranslating()}
+                    fallback={<Sparkles class="h-3 w-3" />}
+                  >
+                    <RefreshCw class="h-3 w-3 animate-spin" />
+                  </Show>
+                  Re-translate
+                </button>
+
+                {/* Re-inpaint */}
+                <button
+                  onClick={() =>
+                    runAction(setIsReinpainting, props.onReinpaint)
+                  }
+                  disabled={anyBusy() || !props.onReinpaint}
+                  class="flex items-center justify-center gap-1 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="White-fill this bubble in the result image"
+                >
+                  <Show
+                    when={isReinpainting()}
+                    fallback={<PaintBucket class="h-3 w-3" />}
+                  >
+                    <RefreshCw class="h-3 w-3 animate-spin" />
+                  </Show>
+                  Re-inpaint
+                </button>
+
+                {/* Re-patch */}
+                <button
+                  onClick={() => runAction(setIsRepatching, props.onRepatch)}
+                  disabled={anyBusy() || !props.onRepatch}
+                  class="flex items-center justify-center gap-1 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Re-render text in this bubble"
+                >
+                  <Show
+                    when={isRepatching()}
+                    fallback={<Type class="h-3 w-3" />}
+                  >
+                    <RefreshCw class="h-3 w-3 animate-spin" />
+                  </Show>
+                  Re-patch
+                </button>
+              </div>
+            </div>
 
             {/* Exclude toggle */}
             <div class="flex items-center gap-2">

@@ -169,7 +169,7 @@ public sealed class BubbleDetectionService : IDisposable
             float bw = x2 - x1, bh = y2 - y1;
             if (bw <= 1f || bh <= 1f) continue;
 
-            result.Add(new BubbleBox(x1, y1, bw, bh, score));
+            result.Add(RefineToInnerBoundary(bitmap, new BubbleBox(x1, y1, bw, bh, score)));
         }
 
         return Nms(result, iouThreshold: 0.45f);
@@ -225,10 +225,10 @@ public sealed class BubbleDetectionService : IDisposable
                 {
                     float conf = output[0, 4, i];
                     if (conf < confidenceThreshold) continue;
-                    boxes.Add(ToPixelBox(
+                    boxes.Add(RefineToInnerBoundary(bitmap, ToPixelBox(
                         output[0, 0, i], output[0, 1, i],
                         output[0, 2, i], output[0, 3, i],
-                        conf, padX, padY, scale, origW, origH));
+                        conf, padX, padY, scale, origW, origH)));
                 }
             }
             // [1, anchors, 5+classes] — channels-last
@@ -238,15 +238,93 @@ public sealed class BubbleDetectionService : IDisposable
                 {
                     float conf = output[0, i, 4];
                     if (conf < confidenceThreshold) continue;
-                    boxes.Add(ToPixelBox(
+                    boxes.Add(RefineToInnerBoundary(bitmap, ToPixelBox(
                         output[0, i, 0], output[0, i, 1],
                         output[0, i, 2], output[0, i, 3],
-                        conf, padX, padY, scale, origW, origH));
+                        conf, padX, padY, scale, origW, origH)));
                 }
             }
         }
 
         return Nms(boxes, iouThreshold: 0.45f);
+    }
+
+    // ── Inner-boundary refinement ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Refines a model bounding box to the actual white inner region of a speech bubble
+    /// by BFS flood-filling bright pixels from the box centre in the original image.
+    /// Returns <paramref name="box"/> unchanged when the centre pixel is not bright,
+    /// or when refinement would yield a degenerate rect.
+    /// </summary>
+    private static BubbleBox RefineToInnerBoundary(
+        SKBitmap src, BubbleBox box, byte brightnessThreshold = 200)
+    {
+        int x0 = Math.Max(0, (int)box.X);
+        int y0 = Math.Max(0, (int)box.Y);
+        int w  = Math.Min((int)box.Width,  src.Width  - x0);
+        int h  = Math.Min((int)box.Height, src.Height - y0);
+        if (w <= 0 || h <= 0) return box;
+
+        bool IsBright(int px, int py)
+        {
+            if ((uint)px >= (uint)src.Width || (uint)py >= (uint)src.Height) return false;
+            var c = src.GetPixel(px, py);
+            return c.Red   > brightnessThreshold
+                && c.Green > brightnessThreshold
+                && c.Blue  > brightnessThreshold;
+        }
+
+        // Sample a 3×3 grid of candidate seeds at 25/50/75 % of the box dimensions.
+        // The exact centre is often occupied by a text glyph (dark), so we probe
+        // multiple points and take the first bright one as the BFS seed.
+        (int lx, int ly) seed = (-1, -1);
+        for (int gy = 1; gy <= 3 && seed.lx < 0; gy++)
+            for (int gx2 = 1; gx2 <= 3 && seed.lx < 0; gx2++)
+            {
+                int tx = x0 + gx2 * w / 4;
+                int ty = y0 + gy  * h / 4;
+                if (IsBright(tx, ty))
+                    seed = (tx - x0, ty - y0);
+            }
+
+        if (seed.lx < 0) return box; // no bright pixel found in bbox
+
+        var visited = new bool[w, h];
+        var queue   = new Queue<(int lx, int ly)>();
+
+        visited[seed.lx, seed.ly] = true;
+        queue.Enqueue(seed);
+
+        int minX = seed.lx + x0, maxX = minX;
+        int minY = seed.ly + y0, maxY = minY;
+
+        void TryExpand(int nx, int ny)
+        {
+            if ((uint)nx >= (uint)w || (uint)ny >= (uint)h || visited[nx, ny]) return;
+            visited[nx, ny] = true;
+            if (IsBright(nx + x0, ny + y0)) queue.Enqueue((nx, ny));
+        }
+
+        while (queue.Count > 0)
+        {
+            var (lx, ly) = queue.Dequeue();
+            int gx = lx + x0, gy2 = ly + y0;
+            if (gx < minX) minX = gx; if (gx > maxX) maxX = gx;
+            if (gy2 < minY) minY = gy2; if (gy2 > maxY) maxY = gy2;
+            TryExpand(lx + 1, ly);
+            TryExpand(lx - 1, ly);
+            TryExpand(lx,     ly + 1);
+            TryExpand(lx,     ly - 1);
+        }
+
+        // Shrink 2 px inward on each side to leave border pixels intact.
+        const int EdgeInset = 2;
+        minX += EdgeInset; minY += EdgeInset;
+        maxX -= EdgeInset; maxY -= EdgeInset;
+        if (maxX <= minX || maxY <= minY) return box;
+
+        return new BubbleBox(minX, minY, maxX - minX, maxY - minY, box.Confidence);
     }
 
     // ── Coordinate helpers ────────────────────────────────────────────────────

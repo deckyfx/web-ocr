@@ -495,3 +495,20 @@
   box-sizing: border-box !important;
   border-radius: 0 0 10px 0 !important;
 }
+
+/* ── Job result image ───────────────────────────────────────────────────────── */
+
+.socr-job-image {
+  all: initial;
+  display: block !important;
+  margin-top: 8px !important;
+}
+
+.socr-result-image {
+  all: initial;
+  display: block !important;
+  max-width: 100% !important;
+  border-radius: 6px !important;
+  margin-top: 4px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
+}
