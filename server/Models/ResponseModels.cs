@@ -45,8 +45,8 @@ public record ModelStatus(string Name, bool Ready, bool Enabled = true);
 public record HealthResponse(
     string Status,
     string Version,
-    string OcrModelsDir,
-    string TranslateModelsDir,
+    string DataDir,
     bool DeeplAvailable,
+    string PreferredTranslationEngine,
     Dictionary<string, ModelStatus> Models
 );

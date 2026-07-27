@@ -40,6 +40,12 @@ public sealed class AllModelSettings
     public ModelEntry Translate { get; set; } = new();
     public ModelEntry Inpaint   { get; set; } = new();
     public ModelEntry Bubble    { get; set; } = new();
+
+    /// <summary>
+    /// Default translation engine for requests that don't specify one.
+    /// Valid values: "auto" (DeepL if configured, else local), "local", "deepl".
+    /// </summary>
+    public string PreferredTranslationEngine { get; set; } = "auto";
 }
 
 /// <summary>
@@ -187,6 +193,7 @@ public sealed class ModelSettingsStore
             Translate = MergeEntry(env.Translate,  file.Translate,  "TRANSLATE_MODEL_REPO", "TRANSLATE_MODELS_DIR", "TRANSLATE_MODEL_ENABLED", "TRANSLATE_MODEL_FILES"),
             Inpaint   = MergeEntry(env.Inpaint,    file.Inpaint,    "INPAINT_MODEL_REPO",   "INPAINT_MODELS_DIR",   "INPAINT_MODEL_ENABLED",   "INPAINT_MODEL_FILES"),
             Bubble    = MergeEntry(env.Bubble,     file.Bubble,     "BUBBLE_MODEL_REPO",    "BUBBLE_MODELS_DIR",    "BUBBLE_MODEL_ENABLED",    "BUBBLE_MODEL_FILES"),
+            PreferredTranslationEngine = file.PreferredTranslationEngine,
         };
     }
 

@@ -3,9 +3,15 @@ import { lazy } from "solid-js";
 import { render } from "solid-js/web";
 import { HashRouter, Route } from "@solidjs/router";
 import { Layout } from "./components/Layout";
-import { Dashboard } from "./components/Dashboard";
+import { HomePage } from "./pages/HomePage";
 
 // Lazy-load pages to keep initial bundle small
+const ServerStatusPage = lazy(() =>
+  import("./pages/ServerStatusPage").then((m) => ({ default: m.ServerStatusPage })),
+);
+const OpenApiPage = lazy(() =>
+  import("./pages/OpenApiPage").then((m) => ({ default: m.OpenApiPage })),
+);
 const JobsListPage = lazy(() =>
   import("./pages/JobsListPage").then((m) => ({ default: m.JobsListPage })),
 );
@@ -26,7 +32,9 @@ function App() {
   return (
     <HashRouter>
       <Route path="/" component={Layout}>
-        <Route path="/" component={Dashboard} />
+        <Route path="/" component={HomePage} />
+        <Route path="/status" component={ServerStatusPage} />
+        <Route path="/openapi" component={OpenApiPage} />
         <Route path="/jobs" component={JobsListPage} />
         <Route path="/jobs/:id" component={StudioPage} />
         <Route path="/library" component={LibraryPage} />

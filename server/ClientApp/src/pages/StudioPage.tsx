@@ -6,10 +6,12 @@ import {
   RefreshCw,
   ScanText,
   Sparkles,
+  Trash2,
 } from "lucide-solid";
 import {
   addBubble,
   deleteBubble,
+  deleteJob,
   getJob,
   getJobBubbles,
   jobOriginalUrl,
@@ -23,6 +25,7 @@ import { BubbleCanvas } from "../components/BubbleCanvas";
 import { BubbleList } from "../components/BubbleList";
 import { BubbleEditor } from "../components/BubbleEditor";
 import type { BubbleUpdatePatch } from "../components/BubbleEditor";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusBadge } from "./JobsListPage";
 
 // ---------------------------------------------------------------------------
@@ -54,6 +57,8 @@ export function StudioPage() {
   const [isRerendering, setIsRerendering] = createSignal(false);
   const [isDrawMode, setIsDrawMode] = createSignal(false);
   const [actionError, setActionError] = createSignal<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [isDeleting, setIsDeleting] = createSignal(false);
 
   // Derived
   const bubbleList = () => bubbles() ?? [];
@@ -192,6 +197,19 @@ export function StudioPage() {
     }
   }
 
+  async function handleDeleteJob(): Promise<void> {
+    setIsDeleting(true);
+    try {
+      await deleteJob(params.id);
+      navigate("/jobs");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to delete job");
+      setShowDeleteConfirm(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   async function handleRerender(): Promise<void> {
     setIsRerendering(true);
     setActionError(null);
@@ -320,7 +338,33 @@ export function StudioPage() {
           </Show>
           Re-render
         </button>
+
+        {/* Divider */}
+        <div class="mx-1 h-5 w-px bg-slate-200" />
+
+        {/* Delete job */}
+        <button
+          onClick={() => setShowDeleteConfirm(true)}
+          disabled={isDeleting()}
+          class="flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+          title="Delete job"
+          aria-label="Delete job"
+        >
+          <Trash2 class="h-3.5 w-3.5" />
+          Delete
+        </button>
       </header>
+
+      {/* Delete confirm dialog */}
+      <ConfirmDialog
+        open={showDeleteConfirm()}
+        title="Delete job"
+        message="This will permanently delete the job, its images, and all bubble data. This cannot be undone."
+        confirmLabel="Delete"
+        loading={isDeleting()}
+        onConfirm={handleDeleteJob}
+        onCancel={() => { if (!isDeleting()) setShowDeleteConfirm(false); }}
+      />
 
       {/* ── Action error banner ─────────────────────────────────────────── */}
       <Show when={actionError()}>
