@@ -11,15 +11,21 @@ public static class TranslateRoutes
             BootState              boot,
             InferenceQueue         queue,
             ModelSettingsStore     modelSettings,
+            AppConfig              config,
             IServiceScopeFactory   scopeFactory,
             ILogger<TranslateService> logger) =>
         {
             if (string.IsNullOrWhiteSpace(req.Text))
                 return Results.BadRequest(new { error = "text is required" });
 
-            var engine = string.IsNullOrWhiteSpace(req.TranslateEngine)
+            var rawEngine = string.IsNullOrWhiteSpace(req.TranslateEngine)
                 ? modelSettings.Current.PreferredTranslationEngine
                 : req.TranslateEngine;
+
+            // Resolve "auto": prefer DeepL when configured, fall back to local.
+            var engine = rawEngine.Equals("auto", StringComparison.OrdinalIgnoreCase)
+                ? (config.DeeplAvailable ? "deepl" : "local")
+                : rawEngine;
 
             // Only require the local model when the chosen engine is not an external API (DeepL).
             var needsLocal = !engine.Equals("deepl", StringComparison.OrdinalIgnoreCase);

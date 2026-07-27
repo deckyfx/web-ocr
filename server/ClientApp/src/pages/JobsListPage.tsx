@@ -60,7 +60,7 @@ function JobCard(props: {
     <div class="group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 transition hover:shadow-md hover:ring-slate-300">
       {/* Delete button — sibling, not nested inside the nav button */}
       <button
-        class="absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-md bg-white/80 text-slate-500 opacity-0 shadow-sm ring-1 ring-slate-200 transition-opacity hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100"
+        class="absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-md bg-white/80 text-slate-500 shadow-sm ring-1 ring-slate-200 hover:bg-red-50 hover:text-red-600"
         title="Delete job"
         aria-label="Delete job"
         onClick={props.onDelete}
@@ -191,7 +191,7 @@ export function JobsListPage() {
       {/* Delete error */}
       <Show when={deleteError()}>
         {(msg) => (
-          <div class="mb-4 flex items-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600 ring-1 ring-red-200">
+          <div role="alert" class="mb-4 flex items-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600 ring-1 ring-red-200">
             <span class="flex-1">{msg()}</span>
             <button
               onClick={() => setDeleteError(null)}

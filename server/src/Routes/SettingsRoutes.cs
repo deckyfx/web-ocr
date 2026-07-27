@@ -30,9 +30,7 @@ public static class SettingsRoutes
             if (string.IsNullOrWhiteSpace(req.Engine))
                 return Results.BadRequest(new { error = "engine is required" });
 
-            var updated = store.Current;
-            updated.PreferredTranslationEngine = req.Engine;
-            var saved = await store.UpdateAsync(updated);
+            var saved = await store.UpdateEngineAsync(req.Engine);
             return Results.Ok(new { preferred_translation_engine = saved.PreferredTranslationEngine });
         });
     }
