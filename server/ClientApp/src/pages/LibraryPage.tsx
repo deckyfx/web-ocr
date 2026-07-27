@@ -181,8 +181,9 @@ export function LibraryPage() {
         <h1 class="text-xl font-semibold text-slate-800">Library</h1>
         <div class="ml-auto flex gap-2">
           <button
-            class="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-600 hover:shadow-sm hover:ring-1 hover:ring-slate-200"
+            class="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-600 hover:shadow-sm hover:ring-1 hover:ring-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
             title="Refresh"
+            aria-label="Refresh library"
             disabled={volumes.loading || allChapters.loading}
             onClick={() => { refetchVolumes(); refetchChapters(); }}
           >

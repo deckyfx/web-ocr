@@ -11,10 +11,11 @@ public static class OcrRoutes
             OcrRequest             req,
             BootState              boot,
             InferenceQueue         queue,
+            PageTranslationQueue   translationQueue,
             IServiceScopeFactory   scopeFactory,
-            PageTranslationService translationSvc,
             AppConfig              config,
-            ILogger<OcrEngine>     logger) =>
+            ILogger<OcrEngine>     logger,
+            CancellationToken      ct) =>
         {
             if (!boot.OcrReady)
                 return Results.Json(new { error = "OCR model not ready" }, statusCode: 503);
@@ -62,22 +63,7 @@ public static class OcrRoutes
             {
                 jobId = Guid.NewGuid().ToString("N");
                 var pngBytes = JpegToPng(imageBytes);
-                var capturedId  = jobId;
-                var capturedPng = pngBytes;
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await translationSvc.TranslatePageAsync(
-                            capturedId, capturedPng,
-                            new Progress<PageTranslationProgress>());
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Background translation job {JobId} failed", capturedId);
-                        await translationSvc.MarkJobFailedAsync(capturedId, ex.Message);
-                    }
-                });
+                await translationQueue.Writer.WriteAsync(new PageTranslationItem(jobId, pngBytes), ct);
             }
 
             return Results.Ok(result with { JobId = jobId });

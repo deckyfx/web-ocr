@@ -169,10 +169,12 @@ public sealed class BubbleDetectionService : IDisposable
             float bw = x2 - x1, bh = y2 - y1;
             if (bw <= 1f || bh <= 1f) continue;
 
-            result.Add(RefineToInnerBoundary(bitmap, new BubbleBox(x1, y1, bw, bh, score)));
+            result.Add(new BubbleBox(x1, y1, bw, bh, score));
         }
 
-        return Nms(result, iouThreshold: 0.45f);
+        // NMS first to eliminate overlapping duplicates, then refine surviving boxes
+        return Nms(result, iouThreshold: 0.45f)
+            .ConvertAll(b => RefineToInnerBoundary(bitmap, b));
     }
 
     // ── YOLOv8 inference ──────────────────────────────────────────────────────
@@ -225,10 +227,10 @@ public sealed class BubbleDetectionService : IDisposable
                 {
                     float conf = output[0, 4, i];
                     if (conf < confidenceThreshold) continue;
-                    boxes.Add(RefineToInnerBoundary(bitmap, ToPixelBox(
+                    boxes.Add(ToPixelBox(
                         output[0, 0, i], output[0, 1, i],
                         output[0, 2, i], output[0, 3, i],
-                        conf, padX, padY, scale, origW, origH)));
+                        conf, padX, padY, scale, origW, origH));
                 }
             }
             // [1, anchors, 5+classes] — channels-last
@@ -238,15 +240,17 @@ public sealed class BubbleDetectionService : IDisposable
                 {
                     float conf = output[0, i, 4];
                     if (conf < confidenceThreshold) continue;
-                    boxes.Add(RefineToInnerBoundary(bitmap, ToPixelBox(
+                    boxes.Add(ToPixelBox(
                         output[0, i, 0], output[0, i, 1],
                         output[0, i, 2], output[0, i, 3],
-                        conf, padX, padY, scale, origW, origH)));
+                        conf, padX, padY, scale, origW, origH));
                 }
             }
         }
 
-        return Nms(boxes, iouThreshold: 0.45f);
+        // NMS first to eliminate overlapping duplicates, then refine surviving boxes
+        return Nms(boxes, iouThreshold: 0.45f)
+            .ConvertAll(b => RefineToInnerBoundary(bitmap, b));
     }
 
     // ── Inner-boundary refinement ─────────────────────────────────────────────

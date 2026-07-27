@@ -188,51 +188,105 @@ async function runServerFlow(
       elapsed_ms: Date.now() - start,
     } satisfies ToContentMsg);
 
-    // If the server started a background page-translation job, poll for its result
+    // If the server started a background page-translation job, schedule alarm-based polling
     if (data.job_id) {
-      void pollJobResult(data.job_id, settings.serverUrl, tabId);
+      void schedulePollJob(data.job_id, settings.serverUrl, tabId);
     }
   } catch (e) {
     sendToTab(tabId, { type: "ocr-error", message: errMsg(e) });
   }
 }
 
-// ── Job result polling ────────────────────────────────────────────────────────
+// ── Job result polling via chrome.alarms (MV3-safe) ──────────────────────────
 
-async function pollJobResult(jobId: string, serverUrl: string, tabId: number): Promise<void> {
-  const base     = serverUrl.replace(/\/$/, "");
-  const deadline = Date.now() + 3 * 60 * 1000; // 3 min timeout
+interface PendingJob {
+  jobId: string;
+  serverUrl: string;
+  tabId: number;
+  deadline: number; // epoch ms — abandon after 3 min
+  errorCount: number;
+}
 
-  while (Date.now() < deadline) {
-    await sleep(2500);
+const ALARM_PREFIX = "poll:";
+const POLL_INTERVAL_SECONDS = 3;
+const POLL_DEADLINE_MS = 3 * 60 * 1000;
+const MAX_CONSECUTIVE_ERRORS = 3;
 
-    try {
-      const res = await fetch(`${base}/jobs/${jobId}/status`);
-      if (!res.ok) break;
+function alarmName(jobId: string): string {
+  return `${ALARM_PREFIX}${jobId}`;
+}
 
-      const data = await res.json() as { status: string };
+async function schedulePollJob(jobId: string, serverUrl: string, tabId: number): Promise<void> {
+  const job: PendingJob = {
+    jobId,
+    serverUrl,
+    tabId,
+    deadline: Date.now() + POLL_DEADLINE_MS,
+    errorCount: 0,
+  };
+  await chrome.storage.session.set({ [alarmName(jobId)]: job });
+  chrome.alarms.create(alarmName(jobId), { delayInMinutes: POLL_INTERVAL_SECONDS / 60 });
+}
 
-      if (data.status === "done") {
-        const imgRes = await fetch(`${base}/jobs/${jobId}/result-image`);
-        if (!imgRes.ok) break;
+async function handlePollAlarm(name: string): Promise<void> {
+  const key = name;
+  const stored = await chrome.storage.session.get(key);
+  const job = stored[key] as PendingJob | undefined;
+  if (!job) return; // already cleared
 
+  if (Date.now() > job.deadline) {
+    await chrome.storage.session.remove(key);
+    return;
+  }
+
+  const base = job.serverUrl.replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/jobs/${job.jobId}/status`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json() as { status: string };
+
+    if (data.status === "done") {
+      const imgRes = await fetch(`${base}/jobs/${job.jobId}/result-image`);
+      if (imgRes.ok) {
         const blob    = await imgRes.blob();
         const dataUrl = await blobToDataUrl(blob);
-
-        sendToTab(tabId, {
+        sendToTab(job.tabId, {
           type: "job-result-ready",
-          jobId,
+          jobId: job.jobId,
           resultImageDataUrl: dataUrl,
         } satisfies JobResultReadyMsg);
-        break;
       }
-
-      if (data.status === "error") break;
-    } catch {
-      break;
+      await chrome.storage.session.remove(key);
+      return;
     }
+
+    if (data.status === "error") {
+      await chrome.storage.session.remove(key);
+      return;
+    }
+
+    // Still pending — reschedule and reset error count
+    const updated: PendingJob = { ...job, errorCount: 0 };
+    await chrome.storage.session.set({ [key]: updated });
+    chrome.alarms.create(name, { delayInMinutes: POLL_INTERVAL_SECONDS / 60 });
+  } catch {
+    const newCount = job.errorCount + 1;
+    if (newCount >= MAX_CONSECUTIVE_ERRORS) {
+      await chrome.storage.session.remove(key);
+      return;
+    }
+    const updated: PendingJob = { ...job, errorCount: newCount };
+    await chrome.storage.session.set({ [key]: updated });
+    chrome.alarms.create(name, { delayInMinutes: POLL_INTERVAL_SECONDS / 60 });
   }
 }
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name.startsWith(ALARM_PREFIX)) {
+    void handlePollAlarm(alarm.name);
+  }
+});
 
 async function blobToDataUrl(blob: Blob): Promise<string> {
   const buf   = await blob.arrayBuffer();

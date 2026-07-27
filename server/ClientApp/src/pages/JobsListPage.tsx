@@ -168,8 +168,10 @@ export function JobsListPage() {
         </div>
         <h1 class="text-xl font-semibold text-slate-800">Jobs</h1>
         <button
-          class="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-600 hover:shadow-sm hover:ring-1 hover:ring-slate-200"
+          class="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-600 hover:shadow-sm hover:ring-1 hover:ring-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
           title="Refresh"
+          aria-label="Refresh jobs"
+          disabled={jobs.loading}
           onClick={() => refetch()}
         >
           <RefreshCw class={`h-4 w-4 ${jobs.loading ? "animate-spin" : ""}`} />

@@ -63,8 +63,9 @@ export function StudioPage() {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isDeleting, setIsDeleting] = createSignal(false);
+  const storedPadding = parseInt(localStorage.getItem("studio-bubble-padding") ?? "0", 10);
   const [bubblePadding, setBubblePadding] = createSignal<number>(
-    parseInt(localStorage.getItem("studio-bubble-padding") ?? "0", 10),
+    Number.isNaN(storedPadding) ? 0 : storedPadding,
   );
   // Incremented after reinpaint/repatch so result image URL cache-busts
   const [resultImageVersion, setResultImageVersion] = createSignal(0);

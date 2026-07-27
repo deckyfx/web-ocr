@@ -118,13 +118,13 @@ This requires three layers: server SSE → `background.ts` → `content.ts`.
 ### Server — new SSE endpoint
 
 Add to `PortalRoutes.cs`:
-```
+```http
 GET /api/portal/jobs/{id}/events
 Content-Type: text/event-stream
 ```
 
 Keeps the connection open. Implementation: poll `AppDbContext` every ~2 s in a loop with `HttpContext.RequestAborted` as cancellation token. When `ResultImagePath` is populated or `Status` changes to `"done"`, emit:
-```
+```text
 event: job-updated
 data: {"id":"...","status":"done","result_available":true}
 ```
