@@ -1,0 +1,4 @@
+reviews:
+  path_filters:
+    - "!server/wwwroot/js/app.js"
+    - "!server/wwwroot/js/app.css"

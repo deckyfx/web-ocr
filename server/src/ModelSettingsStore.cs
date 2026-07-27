@@ -125,6 +125,10 @@ public sealed class ModelSettingsStore
     /// </summary>
     public async Task<AllModelSettings> UpdateEngineAsync(string engine)
     {
+        if (string.IsNullOrWhiteSpace(engine))
+            throw new ArgumentException("Engine is required.", nameof(engine));
+        engine = engine.Trim();
+
         await _writeLock.WaitAsync();
         try
         {
@@ -137,10 +141,10 @@ public sealed class ModelSettingsStore
                 Bubble    = current.Bubble,
                 PreferredTranslationEngine = engine,
             };
-            _current = updated;
             var dir = Path.GetDirectoryName(_filePath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             await File.WriteAllTextAsync(_filePath, JsonSerializer.Serialize(updated, JsonOpts));
+            _current = updated;
             _logger.LogInformation("[ModelSettings] Persisted to {Path}", _filePath);
             return _current;
         }
