@@ -55,49 +55,52 @@ function JobCard(props: {
       : jobOriginalUrl(props.job.id);
 
   return (
-    <button
-      class="group flex flex-col overflow-hidden rounded-2xl bg-white text-left shadow-sm ring-1 ring-slate-200 transition hover:shadow-md hover:ring-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500"
-      onClick={props.onClick}
-    >
-      {/* Thumbnail */}
-      <div class="relative aspect-3/4 w-full overflow-hidden bg-slate-100">
-        <img
-          src={thumbSrc()}
-          alt={props.job.title}
-          class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-          loading="lazy"
-        />
-        <div class="absolute right-2 top-2">
-          <StatusBadge status={props.job.status} />
-        </div>
-        {/* Delete icon — shown on hover. Must be a div, not button, because it's nested inside the card button. */}
-        <div
-          role="button"
-          tabIndex={0}
-          class="absolute left-2 top-2 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-white/80 text-slate-500 opacity-0 shadow-sm ring-1 ring-slate-200 transition-opacity hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
-          title="Delete job"
-          aria-label="Delete job"
-          onClick={props.onDelete}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") props.onDelete(e as unknown as MouseEvent); }}
-        >
-          <Trash2 class="h-3.5 w-3.5" />
-        </div>
-      </div>
+    // Outer div acts as the group anchor; contains two sibling native buttons so
+    // neither is nested inside the other (avoids invalid interactive-in-interactive HTML).
+    <div class="group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 transition hover:shadow-md hover:ring-slate-300">
+      {/* Delete button — sibling, not nested inside the nav button */}
+      <button
+        class="absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-md bg-white/80 text-slate-500 opacity-0 shadow-sm ring-1 ring-slate-200 transition-opacity hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100"
+        title="Delete job"
+        aria-label="Delete job"
+        onClick={props.onDelete}
+      >
+        <Trash2 class="h-3.5 w-3.5" />
+      </button>
 
-      {/* Info */}
-      <div class="flex flex-col gap-1 p-3">
-        <p class="truncate text-sm font-medium text-slate-800">{props.job.title}</p>
-        <div class="flex items-center gap-3 text-xs text-slate-500">
-          <span class="flex items-center gap-1">
-            <Layers class="h-3 w-3" />
-            {props.job.bubbleCount} bubbles
-          </span>
-          <span class="ml-auto">
-            {new Date(props.job.createdAt).toLocaleDateString()}
-          </span>
+      {/* Nav button covers thumbnail + info */}
+      <button
+        class="flex w-full flex-col text-left focus-visible:outline-2 focus-visible:outline-violet-500"
+        onClick={props.onClick}
+      >
+        {/* Thumbnail */}
+        <div class="relative aspect-3/4 w-full overflow-hidden bg-slate-100">
+          <img
+            src={thumbSrc()}
+            alt={props.job.title}
+            class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+            loading="lazy"
+          />
+          <div class="absolute right-2 top-2">
+            <StatusBadge status={props.job.status} />
+          </div>
         </div>
-      </div>
-    </button>
+
+        {/* Info */}
+        <div class="flex flex-col gap-1 p-3">
+          <p class="truncate text-sm font-medium text-slate-800">{props.job.title}</p>
+          <div class="flex items-center gap-3 text-xs text-slate-500">
+            <span class="flex items-center gap-1">
+              <Layers class="h-3 w-3" />
+              {props.job.bubbleCount} bubbles
+            </span>
+            <span class="ml-auto">
+              {new Date(props.job.createdAt).toLocaleDateString()}
+            </span>
+          </div>
+        </div>
+      </button>
+    </div>
   );
 }
 
@@ -131,9 +134,11 @@ export function JobsListPage() {
   // Delete confirm state
   const [pendingDeleteId, setPendingDeleteId] = createSignal<string | null>(null);
   const [isDeleting, setIsDeleting] = createSignal(false);
+  const [deleteError, setDeleteError] = createSignal<string | null>(null);
 
   function requestDelete(id: string, e: MouseEvent): void {
     e.stopPropagation();
+    setDeleteError(null);
     setPendingDeleteId(id);
   }
 
@@ -145,6 +150,9 @@ export function JobsListPage() {
       await deleteJob(id);
       setPendingDeleteId(null);
       refetch();
+    } catch (err) {
+      setPendingDeleteId(null);
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete job");
     } finally {
       setIsDeleting(false);
     }
@@ -179,6 +187,22 @@ export function JobsListPage() {
           ))}
         </select>
       </div>
+
+      {/* Delete error */}
+      <Show when={deleteError()}>
+        {(msg) => (
+          <div class="mb-4 flex items-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600 ring-1 ring-red-200">
+            <span class="flex-1">{msg()}</span>
+            <button
+              onClick={() => setDeleteError(null)}
+              class="shrink-0 rounded p-0.5 hover:bg-red-100"
+              aria-label="Dismiss error"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </Show>
 
       {/* States */}
       <Show when={jobs.loading}>
