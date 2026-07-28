@@ -79,6 +79,7 @@ export interface ExplainErrorMsg    { type: "explain-error"; message: string }
 
 export interface StartImageModeMsg  { type: "start-image-mode" }
 export interface JobResultReadyMsg  { type: "job-result-ready"; jobId: string; resultImageDataUrl: string }
+export interface JobResultErrorMsg  { type: "job-result-error"; jobId: string; reason: "timeout" | "server-error" | "network-error" }
 
 export type ToContentMsg =
   | StartSelectionMsg
@@ -88,7 +89,8 @@ export type ToContentMsg =
   | ExplainResultMsg
   | ExplainErrorMsg
   | StartImageModeMsg
-  | JobResultReadyMsg;
+  | JobResultReadyMsg
+  | JobResultErrorMsg;
 
 // ── Messages: content → background ───────────────────────────────────────────
 

@@ -8,6 +8,7 @@ import type {
   PopupModeMsg,
   FetchImageMsg,
   JobResultReadyMsg,
+  JobResultErrorMsg,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
@@ -235,6 +236,11 @@ async function handlePollAlarm(name: string): Promise<void> {
   if (!job) return; // already cleared
 
   if (Date.now() > job.deadline) {
+    sendToTab(job.tabId, {
+      type: "job-result-error",
+      jobId: job.jobId,
+      reason: "timeout",
+    } satisfies JobResultErrorMsg);
     await chrome.storage.session.remove(key);
     return;
   }
@@ -262,6 +268,11 @@ async function handlePollAlarm(name: string): Promise<void> {
     }
 
     if (data.status === "error") {
+      sendToTab(job.tabId, {
+        type: "job-result-error",
+        jobId: job.jobId,
+        reason: "server-error",
+      } satisfies JobResultErrorMsg);
       await chrome.storage.session.remove(key);
       return;
     }
@@ -273,6 +284,11 @@ async function handlePollAlarm(name: string): Promise<void> {
   } catch {
     const newCount = job.errorCount + 1;
     if (newCount >= MAX_CONSECUTIVE_ERRORS) {
+      sendToTab(job.tabId, {
+        type: "job-result-error",
+        jobId: job.jobId,
+        reason: "network-error",
+      } satisfies JobResultErrorMsg);
       await chrome.storage.session.remove(key);
       return;
     }

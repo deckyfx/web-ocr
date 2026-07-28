@@ -57,13 +57,24 @@ public static class OcrRoutes
             // Fire-and-forget DB log (non-blocking)
             _ = LogOcrAsync(scopeFactory, result, engine);
 
-            // Optional background page-translation job (for extension result push)
+            // Optional background page-translation job (for extension result push).
+            // Use TryWrite so a full or closed queue never delays or fails the OCR response.
             string? jobId = null;
             if (req.TrackJob == true && boot.IsReady)
             {
-                jobId = Guid.NewGuid().ToString("N");
-                var pngBytes = JpegToPng(imageBytes);
-                await translationQueue.Writer.WriteAsync(new PageTranslationItem(jobId, pngBytes), ct);
+                try
+                {
+                    var candidateId = Guid.NewGuid().ToString("N");
+                    var pngBytes    = JpegToPng(imageBytes);
+                    if (translationQueue.Writer.TryWrite(new PageTranslationItem(candidateId, pngBytes)))
+                        jobId = candidateId;
+                    else
+                        logger.LogWarning("Translation queue full; skipping tracked job for this OCR request.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to enqueue page-translation job; proceeding without job tracking.");
+                }
             }
 
             return Results.Ok(result with { JobId = jobId });
@@ -104,7 +115,7 @@ public static class OcrRoutes
     private static byte[] JpegToPng(byte[] jpeg)
     {
         using var bmp = SKBitmap.Decode(jpeg);
-        if (bmp is null) return jpeg;
+        if (bmp is null) throw new InvalidOperationException("Failed to decode image: unsupported format or corrupt data.");
         using var imgData = bmp.Encode(SKEncodedImageFormat.Png, 100);
         return imgData.ToArray();
     }
