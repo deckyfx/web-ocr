@@ -53,6 +53,8 @@ export interface BubbleCanvasProps {
   selectedIndex: number | null;
   /** When true the next mousedown on the canvas background starts a draw gesture. */
   drawMode?: boolean;
+  /** Additional display-only inset (px in image coords) applied on all sides. Default 0. */
+  bubblePadding?: number;
   onSelect: (index: number | null) => void;
   onMove: (bubbleIndex: number, dx: number, dy: number) => void;
   onResize: (
@@ -422,9 +424,10 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
             const rect = () => getBubbleRect(bubble);
             const svgRect = () => {
               const r = rect();
-              const tl = toSvg(r.x, r.y);
-              const br = toSvg(r.x + r.w, r.y + r.h);
-              return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
+              const pad = props.bubblePadding ?? 0;
+              const tl = toSvg(r.x + pad, r.y + pad);
+              const br = toSvg(r.x + r.w - pad, r.y + r.h - pad);
+              return { x: tl.x, y: tl.y, w: Math.max(0, br.x - tl.x), h: Math.max(0, br.y - tl.y) };
             };
             const isSelected = () =>
               props.selectedIndex === bubble.bubbleIndex;
@@ -492,8 +495,8 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                     {(handle) => {
                       const [fx, fy] = HANDLE_OFFSETS[handle];
                       const hSvgPos = () => {
-                        const r = rect();
-                        return toSvg(r.x + fx * r.w, r.y + fy * r.h);
+                        const sr = svgRect();
+                        return { x: sr.x + fx * sr.w, y: sr.y + fy * sr.h };
                       };
                       return (
                         <rect

@@ -6,6 +6,7 @@ import {
   Edit2,
   FolderOpen,
   Plus,
+  RefreshCw,
   Trash2,
 } from "lucide-solid";
 import {
@@ -179,6 +180,15 @@ export function LibraryPage() {
         </div>
         <h1 class="text-xl font-semibold text-slate-800">Library</h1>
         <div class="ml-auto flex gap-2">
+          <button
+            class="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-600 hover:shadow-sm hover:ring-1 hover:ring-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Refresh"
+            aria-label="Refresh library"
+            disabled={volumes.loading || allChapters.loading}
+            onClick={() => { refetchVolumes(); refetchChapters(); }}
+          >
+            <RefreshCw class={`h-4 w-4 ${volumes.loading || allChapters.loading ? "animate-spin" : ""}`} />
+          </button>
           <button
             class="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
             onClick={openCreateVolume}

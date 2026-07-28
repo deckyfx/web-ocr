@@ -88,6 +88,8 @@ public static class ServiceExtensions
         // Background inference queue (serialises ONNX sessions)
         builder.Services.AddSingleton<InferenceQueue>();
         builder.Services.AddHostedService<InferenceWorker>();
+        builder.Services.AddSingleton<PageTranslationQueue>();
+        builder.Services.AddHostedService<PageTranslationWorker>();
 
         // Boot background service: scaffolds dirs, runs migrations, downloads models, inits services
         builder.Services.AddHostedService<BootBackgroundService>();

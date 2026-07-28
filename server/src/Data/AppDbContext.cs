@@ -82,6 +82,8 @@ public class PageTranslationLog
     public string    TranslatedText  { get; set; } = "";
     public bool      IsManuallyAdded { get; set; }
     public bool      IsExcluded      { get; set; }
+    public string?   FontFamily      { get; set; }
+    public int?      FontSizeOverride { get; set; }
     public DateTime? LastEditedAt    { get; set; }
     public DateTime  CreatedAt       { get; set; } = DateTime.UtcNow;
 }

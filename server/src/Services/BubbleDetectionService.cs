@@ -65,7 +65,7 @@ public sealed class BubbleDetectionService : IDisposable
     /// Returns pixel-coordinate bounding boxes in the original image dimensions.
     /// Returns an empty list when no model is loaded.
     /// </summary>
-    public List<BubbleBox> Detect(byte[] imagePng, float confidenceThreshold = 0.35f)
+    public List<BubbleBox> Detect(byte[] imagePng, float confidenceThreshold = 0.35f, CancellationToken ct = default)
     {
         // Capture session once; field is volatile so this read has acquire semantics
         var session = _session;
@@ -75,8 +75,8 @@ public sealed class BubbleDetectionService : IDisposable
         if (bitmap is null) return [];
 
         return _family == ModelFamily.RtDetr
-            ? DetectRtDetr(session, bitmap, confidenceThreshold)
-            : DetectYolo(session, bitmap, confidenceThreshold);
+            ? DetectRtDetr(session, bitmap, confidenceThreshold, ct)
+            : DetectYolo(session, bitmap, confidenceThreshold, ct);
     }
 
     // ── RT-DETR inference ─────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ public sealed class BubbleDetectionService : IDisposable
     // Inputs:  images [1,3,640,640] float32 normalised, orig_target_sizes [1,2] int64 (H, W)
     // Outputs: labels [1,N] int64, boxes [1,N,4] float32 (x1,y1,x2,y2 pixel coords), scores [1,N] float32
 
-    private List<BubbleBox> DetectRtDetr(InferenceSession session, SKBitmap bitmap, float confidenceThreshold)
+    private List<BubbleBox> DetectRtDetr(InferenceSession session, SKBitmap bitmap, float confidenceThreshold, CancellationToken ct)
     {
         const int InputSize = 640;
         int origW = bitmap.Width, origH = bitmap.Height;
@@ -172,13 +172,15 @@ public sealed class BubbleDetectionService : IDisposable
             result.Add(new BubbleBox(x1, y1, bw, bh, score));
         }
 
-        return Nms(result, iouThreshold: 0.45f);
+        // NMS first to eliminate overlapping duplicates, then refine surviving boxes
+        return Nms(result, iouThreshold: 0.45f)
+            .ConvertAll(b => RefineToInnerBoundary(bitmap, b, ct: ct));
     }
 
     // ── YOLOv8 inference ──────────────────────────────────────────────────────
     // Handles both channels-first [1,5+cls,anchors] and channels-last [1,anchors,5+cls] layouts.
 
-    private List<BubbleBox> DetectYolo(InferenceSession session, SKBitmap bitmap, float confidenceThreshold)
+    private List<BubbleBox> DetectYolo(InferenceSession session, SKBitmap bitmap, float confidenceThreshold, CancellationToken ct)
     {
         const int InputSize = 640;
         int origW = bitmap.Width, origH = bitmap.Height;
@@ -246,7 +248,97 @@ public sealed class BubbleDetectionService : IDisposable
             }
         }
 
-        return Nms(boxes, iouThreshold: 0.45f);
+        // NMS first to eliminate overlapping duplicates, then refine surviving boxes
+        return Nms(boxes, iouThreshold: 0.45f)
+            .ConvertAll(b => RefineToInnerBoundary(bitmap, b, ct: ct));
+    }
+
+    // ── Inner-boundary refinement ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Refines a model bounding box to the actual white inner region of a speech bubble
+    /// by BFS flood-filling bright pixels from the box centre in the original image.
+    /// Returns <paramref name="box"/> unchanged when the centre pixel is not bright,
+    /// the box area exceeds <see cref="MaxBfsArea"/>, or refinement yields a degenerate rect.
+    /// </summary>
+    private static BubbleBox RefineToInnerBoundary(
+        SKBitmap src, BubbleBox box, byte brightnessThreshold = 200, CancellationToken ct = default)
+    {
+        int x0 = Math.Max(0, (int)box.X);
+        int y0 = Math.Max(0, (int)box.Y);
+        int w  = Math.Min((int)box.Width,  src.Width  - x0);
+        int h  = Math.Min((int)box.Height, src.Height - y0);
+        if (w <= 0 || h <= 0) return box;
+
+        // Guard against unbounded allocation for very large boxes.
+        const int MaxBfsArea = 1_000_000; // ~1000×1000 pixels
+        if (w * h > MaxBfsArea) return box;
+
+        ct.ThrowIfCancellationRequested();
+
+        bool IsBright(int px, int py)
+        {
+            if ((uint)px >= (uint)src.Width || (uint)py >= (uint)src.Height) return false;
+            var c = src.GetPixel(px, py);
+            return c.Red   > brightnessThreshold
+                && c.Green > brightnessThreshold
+                && c.Blue  > brightnessThreshold;
+        }
+
+        // Sample a 3×3 grid of candidate seeds at 25/50/75 % of the box dimensions.
+        // The exact centre is often occupied by a text glyph (dark), so we probe
+        // multiple points and take the first bright one as the BFS seed.
+        (int lx, int ly) seed = (-1, -1);
+        for (int gy = 1; gy <= 3 && seed.lx < 0; gy++)
+            for (int gx2 = 1; gx2 <= 3 && seed.lx < 0; gx2++)
+            {
+                int tx = x0 + gx2 * w / 4;
+                int ty = y0 + gy  * h / 4;
+                if (IsBright(tx, ty))
+                    seed = (tx - x0, ty - y0);
+            }
+
+        if (seed.lx < 0) return box; // no bright pixel found in bbox
+
+        var visited = new bool[w, h];
+        var queue   = new Queue<(int lx, int ly)>();
+
+        visited[seed.lx, seed.ly] = true;
+        queue.Enqueue(seed);
+
+        int minX = seed.lx + x0, maxX = minX;
+        int minY = seed.ly + y0, maxY = minY;
+
+        void TryExpand(int nx, int ny)
+        {
+            if ((uint)nx >= (uint)w || (uint)ny >= (uint)h || visited[nx, ny]) return;
+            visited[nx, ny] = true;
+            if (IsBright(nx + x0, ny + y0)) queue.Enqueue((nx, ny));
+        }
+
+        int bfsCount = 0;
+        while (queue.Count > 0)
+        {
+            if (++bfsCount % 1_000 == 0) ct.ThrowIfCancellationRequested();
+
+            var (lx, ly) = queue.Dequeue();
+            int gx = lx + x0, gy2 = ly + y0;
+            if (gx < minX) minX = gx; if (gx > maxX) maxX = gx;
+            if (gy2 < minY) minY = gy2; if (gy2 > maxY) maxY = gy2;
+            TryExpand(lx + 1, ly);
+            TryExpand(lx - 1, ly);
+            TryExpand(lx,     ly + 1);
+            TryExpand(lx,     ly - 1);
+        }
+
+        // Shrink 2 px inward on each side to leave border pixels intact.
+        const int EdgeInset = 2;
+        minX += EdgeInset; minY += EdgeInset;
+        maxX -= EdgeInset; maxY -= EdgeInset;
+        if (maxX <= minX || maxY <= minY) return box;
+
+        // +1 converts inclusive pixel coordinates to pixel counts.
+        return new BubbleBox(minX, minY, maxX - minX + 1, maxY - minY + 1, box.Confidence);
     }
 
     // ── Coordinate helpers ────────────────────────────────────────────────────

@@ -2,7 +2,8 @@ namespace WebOcrServer;
 
 public record OcrRequest(
     string Image,
-    string? TranslateEngine = "none"
+    string? TranslateEngine = "none",
+    bool?   TrackJob        = null
 );
 
 public record TranslateRequest(

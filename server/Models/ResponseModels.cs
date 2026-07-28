@@ -3,7 +3,9 @@ namespace WebOcrServer;
 public record OcrResponse(
     string Text,
     string? Translation,
-    long ElapsedMs
+    long    ElapsedMs,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? JobId = null
 );
 
 public record TranslateResponse(

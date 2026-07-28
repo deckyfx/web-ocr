@@ -1,3 +1,4 @@
+using SkiaSharp;
 using WebOcrServer.Data;
 
 namespace WebOcrServer;
@@ -10,8 +11,11 @@ public static class OcrRoutes
             OcrRequest             req,
             BootState              boot,
             InferenceQueue         queue,
+            PageTranslationQueue   translationQueue,
             IServiceScopeFactory   scopeFactory,
-            ILogger<OcrEngine>     logger) =>
+            AppConfig              config,
+            ILogger<OcrEngine>     logger,
+            CancellationToken      ct) =>
         {
             if (!boot.OcrReady)
                 return Results.Json(new { error = "OCR model not ready" }, statusCode: 503);
@@ -53,8 +57,67 @@ public static class OcrRoutes
             // Fire-and-forget DB log (non-blocking)
             _ = LogOcrAsync(scopeFactory, result, engine);
 
-            return Results.Ok(result);
+            // Optional background page-translation job (for extension result push).
+            // Use TryWrite so a full or closed queue never delays or fails the OCR response.
+            string? jobId = null;
+            if (req.TrackJob == true && boot.IsReady)
+            {
+                try
+                {
+                    var candidateId = Guid.NewGuid().ToString("N");
+                    var pngBytes    = JpegToPng(imageBytes);
+                    if (translationQueue.Writer.TryWrite(new PageTranslationItem(candidateId, pngBytes)))
+                        jobId = candidateId;
+                    else
+                        logger.LogWarning("Translation queue full; skipping tracked job for this OCR request.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to enqueue page-translation job; proceeding without job tracking.");
+                }
+            }
+
+            return Results.Ok(result with { JobId = jobId });
         });
+
+        // ── Job status (extension-accessible, default CORS) ───────────────────
+
+        app.MapGet("/jobs/{id}/status", async (string id, AppDbContext db) =>
+        {
+            var job = await db.PageTranslationJobs.FindAsync(id);
+            if (job is null) return Results.NotFound();
+            return Results.Ok(new { status = job.Status, job_id = id });
+        });
+
+        // ── Job result image (extension-accessible, default CORS) ─────────────
+
+        app.MapGet("/jobs/{id}/result-image", async (
+            string      id,
+            AppDbContext db,
+            AppConfig   config,
+            HttpContext  ctx) =>
+        {
+            var job = await db.PageTranslationJobs.FindAsync(id);
+            if (job is null || string.IsNullOrEmpty(job.ResultImagePath))
+                return Results.NotFound();
+
+            var dataDir  = Path.GetDirectoryName(Path.GetFullPath(config.DatabasePath))!;
+            var fullPath = Path.Combine(dataDir, job.ResultImagePath);
+            if (!File.Exists(fullPath)) return Results.NotFound();
+
+            ctx.Response.Headers["Cache-Control"] = "no-cache";
+            return Results.File(fullPath, "image/png");
+        });
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static byte[] JpegToPng(byte[] jpeg)
+    {
+        using var bmp = SKBitmap.Decode(jpeg);
+        if (bmp is null) throw new InvalidOperationException("Failed to decode image: unsupported format or corrupt data.");
+        using var imgData = bmp.Encode(SKEncodedImageFormat.Png, 100);
+        return imgData.ToArray();
     }
 
     private static async Task LogOcrAsync(

@@ -144,6 +144,8 @@ export type UpdateBubbleBody = Partial<{
   bubbleW: number;
   bubbleH: number;
   isExcluded: boolean;
+  fontFamily: string;
+  fontSizeOverride: number;
 }>;
 
 export function updateBubble(
@@ -175,8 +177,40 @@ export function retranslateJob(id: string): Promise<void> {
   return apiFetch<void>(`/api/portal/jobs/${id}/retranslate`, { method: "POST" });
 }
 
-export function rerenderJob(id: string): Promise<void> {
-  return apiFetch<void>(`/api/portal/jobs/${id}/rerender`, { method: "POST" });
+export function rerenderJob(id: string, padding = 0): Promise<void> {
+  return apiFetch<void>(`/api/portal/jobs/${id}/rerender`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ padding }),
+  });
+}
+
+export function reocrBubble(jobId: string, bubbleIndex: number): Promise<TranslationBubble> {
+  return apiFetch<TranslationBubble>(
+    `/api/portal/jobs/${jobId}/bubbles/${bubbleIndex}/reocr`,
+    { method: "POST" },
+  );
+}
+
+export function retranslateBubble(jobId: string, bubbleIndex: number): Promise<TranslationBubble> {
+  return apiFetch<TranslationBubble>(
+    `/api/portal/jobs/${jobId}/bubbles/${bubbleIndex}/retranslate`,
+    { method: "POST" },
+  );
+}
+
+export function reinpaintBubble(jobId: string, bubbleIndex: number, padding = 0): Promise<void> {
+  return apiFetch<void>(`/api/portal/jobs/${jobId}/bubbles/${bubbleIndex}/reinpaint`, {
+    method: "POST",
+    body: JSON.stringify({ padding }),
+  });
+}
+
+export function repatchBubble(jobId: string, bubbleIndex: number, padding = 0): Promise<void> {
+  return apiFetch<void>(`/api/portal/jobs/${jobId}/bubbles/${bubbleIndex}/repatch`, {
+    method: "POST",
+    body: JSON.stringify({ padding }),
+  });
 }
 
 // ---------------------------------------------------------------------------

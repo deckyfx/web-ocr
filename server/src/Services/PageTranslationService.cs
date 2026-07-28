@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using SkiaSharp;
 using WebOcrServer.Data;
@@ -232,12 +233,10 @@ public sealed class PageTranslationService(
     }
 
     /// <summary>Re-runs typesetting on the current DB bubble data and overwrites the stored result image.</summary>
-    public async Task RerenderAsync(string jobId, CancellationToken ct = default)
+    public async Task RerenderAsync(string jobId, int padding = 0, CancellationToken ct = default)
     {
         var originalPath = Path.Combine(config.JobsDir, jobId, "original.png");
         if (!File.Exists(originalPath)) throw new FileNotFoundException("Original image not found for job", originalPath);
-
-        var imagePng = await File.ReadAllBytesAsync(originalPath, ct);
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -249,19 +248,25 @@ public sealed class PageTranslationService(
 
         var translations = bubbleLogs.Select(l => new BubbleTranslation(
             new BubbleBox(l.BubbleX, l.BubbleY, l.BubbleW, l.BubbleH, l.Confidence),
-            l.SourceText, l.TranslatedText)).ToList();
+            l.SourceText, l.TranslatedText, l.FontFamily, l.FontSizeOverride)).ToList();
 
-        var resultPng = await Task.Run(() => typesetter.RenderTranslations(imagePng, translations), ct);
-
-        var resultPath = Path.Combine(config.JobsDir, jobId, "result.png");
-        await File.WriteAllBytesAsync(resultPath, resultPng, ct);
-
-        var job = await db.PageTranslationJobs.FindAsync(jobId);
-        if (job is not null)
+        var imgLock = GetImageLock(jobId);
+        await imgLock.WaitAsync(ct);
+        try
         {
-            job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
-            await db.SaveChangesAsync(ct);
+            var imagePng  = await File.ReadAllBytesAsync(originalPath, ct);
+            var resultPng = await Task.Run(() => typesetter.RenderTranslations(imagePng, translations, padding), ct);
+            var resultPath = Path.Combine(config.JobsDir, jobId, "result.png");
+            await File.WriteAllBytesAsync(resultPath, resultPng, ct);
+
+            var job = await db.PageTranslationJobs.FindAsync(jobId);
+            if (job is not null)
+            {
+                job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
+                await db.SaveChangesAsync(ct);
+            }
         }
+        finally { imgLock.Release(); }
     }
 
     // ── Public helpers used by PortalRoutes ───────────────────────────────────
@@ -275,6 +280,145 @@ public sealed class PageTranslationService(
     /// <summary>Crop helper exposed for use in retranslate route.</summary>
     public static byte[] CropBubblePublic(byte[] imagePng, BubbleBox box, float padding) =>
         CropBubble(imagePng, box, padding);
+
+    // ── Per-bubble actions ────────────────────────────────────────────────────
+
+    /// <summary>Re-runs OCR on a single bubble, updates <see cref="Data.PageTranslationLog.SourceText"/>.</summary>
+    public async Task<Data.PageTranslationLog> ReocrBubbleAsync(string jobId, int bubbleIndex, CancellationToken ct = default)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var bubble = await db.PageTranslationLogs
+            .FirstOrDefaultAsync(l => l.JobId == jobId && l.BubbleIndex == bubbleIndex, ct)
+            ?? throw new KeyNotFoundException($"Bubble {bubbleIndex} not found in job {jobId}");
+
+        var imagePng = await File.ReadAllBytesAsync(Path.Combine(config.JobsDir, jobId, "original.png"), ct);
+        var cropped  = CropBubble(imagePng,
+            new BubbleBox(bubble.BubbleX, bubble.BubbleY, bubble.BubbleW, bubble.BubbleH, bubble.Confidence), 0.05f);
+
+        var ocrTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await queue.Writer.WriteAsync(new OcrJob(cropped, "none", ocrTcs), ct);
+        var ocrResult = (OcrResponse)await ocrTcs.Task;
+
+        bubble.SourceText   = ocrResult.Text?.Trim() ?? "";
+        bubble.LastEditedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return bubble;
+    }
+
+    /// <summary>Translates the stored source text for a single bubble, updates <see cref="Data.PageTranslationLog.TranslatedText"/>.</summary>
+    public async Task<Data.PageTranslationLog> RetranslateBubbleAsync(string jobId, int bubbleIndex, CancellationToken ct = default)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var bubble = await db.PageTranslationLogs
+            .FirstOrDefaultAsync(l => l.JobId == jobId && l.BubbleIndex == bubbleIndex, ct)
+            ?? throw new KeyNotFoundException($"Bubble {bubbleIndex} not found in job {jobId}");
+
+        if (!string.IsNullOrEmpty(bubble.SourceText))
+        {
+            var trTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await queue.Writer.WriteAsync(
+                new TranslateJob(bubble.SourceText, modelSettings.Current.PreferredTranslationEngine, trTcs), ct);
+            var trResult = (TranslateResponse)await trTcs.Task;
+
+            bubble.TranslatedText = trResult.Translation;
+            bubble.LastEditedAt   = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+
+        return bubble;
+    }
+
+    /// <summary>
+    /// White-fills a single bubble in the stored result image (per-bubble re-inpaint).
+    /// If no result image exists yet, copies the original first.
+    /// </summary>
+    public async Task ReinpaintBubbleAsync(string jobId, int bubbleIndex, int padding = 0, CancellationToken ct = default)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var bubble = await db.PageTranslationLogs
+            .FirstOrDefaultAsync(l => l.JobId == jobId && l.BubbleIndex == bubbleIndex, ct)
+            ?? throw new KeyNotFoundException($"Bubble {bubbleIndex} not found in job {jobId}");
+
+        var jobDir       = Path.Combine(config.JobsDir, jobId);
+        var resultPath   = Path.Combine(jobDir, "result.png");
+        var originalPath = Path.Combine(jobDir, "original.png");
+
+        var box = padding > 0
+            ? new BubbleBox(bubble.BubbleX + padding, bubble.BubbleY + padding,
+                Math.Max(1, bubble.BubbleW - 2 * padding), Math.Max(1, bubble.BubbleH - 2 * padding), bubble.Confidence)
+            : new BubbleBox(bubble.BubbleX, bubble.BubbleY, bubble.BubbleW, bubble.BubbleH, bubble.Confidence);
+
+        var imgLock = GetImageLock(jobId);
+        await imgLock.WaitAsync(ct);
+        try
+        {
+            if (!File.Exists(resultPath)) File.Copy(originalPath, resultPath);
+            var imagePng  = await File.ReadAllBytesAsync(resultPath, ct);
+            var resultPng = await Task.Run(() => typesetter.WhiteFillBubble(imagePng, box), ct);
+            await File.WriteAllBytesAsync(resultPath, resultPng, ct);
+
+            var job = await db.PageTranslationJobs.FindAsync(jobId);
+            if (job is not null && string.IsNullOrEmpty(job.ResultImagePath))
+            {
+                job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
+                await db.SaveChangesAsync(ct);
+            }
+        }
+        finally { imgLock.Release(); }
+    }
+
+    /// <summary>
+    /// Re-renders (white-fill + typeset) a single bubble onto the stored result image.
+    /// If no result image exists yet, copies the original first.
+    /// </summary>
+    public async Task RepatchBubbleAsync(string jobId, int bubbleIndex, int padding = 0, CancellationToken ct = default)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var bubble = await db.PageTranslationLogs
+            .FirstOrDefaultAsync(l => l.JobId == jobId && l.BubbleIndex == bubbleIndex, ct)
+            ?? throw new KeyNotFoundException($"Bubble {bubbleIndex} not found in job {jobId}");
+
+        var jobDir       = Path.Combine(config.JobsDir, jobId);
+        var resultPath   = Path.Combine(jobDir, "result.png");
+        var originalPath = Path.Combine(jobDir, "original.png");
+
+        var t = new BubbleTranslation(
+            new BubbleBox(bubble.BubbleX, bubble.BubbleY, bubble.BubbleW, bubble.BubbleH, bubble.Confidence),
+            bubble.SourceText, bubble.TranslatedText, bubble.FontFamily, bubble.FontSizeOverride);
+
+        var imgLock = GetImageLock(jobId);
+        await imgLock.WaitAsync(ct);
+        try
+        {
+            if (!File.Exists(resultPath)) File.Copy(originalPath, resultPath);
+            var imagePng  = await File.ReadAllBytesAsync(resultPath, ct);
+            var resultPng = await Task.Run(() => typesetter.RenderOneBubble(imagePng, t, padding), ct);
+            await File.WriteAllBytesAsync(resultPath, resultPng, ct);
+
+            var job = await db.PageTranslationJobs.FindAsync(jobId);
+            if (job is not null && string.IsNullOrEmpty(job.ResultImagePath))
+            {
+                job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
+                await db.SaveChangesAsync(ct);
+            }
+        }
+        finally { imgLock.Release(); }
+    }
+
+    // ── Per-job image lock (serialises rerender/reinpaint/repatch) ───────────
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ImageLocks = new();
+
+    private static SemaphoreSlim GetImageLock(string jobId) =>
+        ImageLocks.GetOrAdd(jobId, _ => new SemaphoreSlim(1, 1));
 
     // ── DB helpers ────────────────────────────────────────────────────────────
 
