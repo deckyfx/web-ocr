@@ -55,6 +55,12 @@ export interface BubbleCanvasProps {
   drawMode?: boolean;
   /** Additional display-only inset (px in image coords) applied on all sides. Default 0. */
   bubblePadding?: number;
+  /**
+   * When true, render the translated text as a floating overlay inside each
+   * non-excluded bubble. Used in the Compose stage so the user can preview
+   * what text will be burned before committing to a re-render.
+   */
+  showTextOverlay?: boolean;
   onSelect: (index: number | null) => void;
   onMove: (bubbleIndex: number, dx: number, dy: number) => void;
   onResize: (
@@ -515,6 +521,40 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                       );
                     }}
                   </For>
+                </Show>
+                {/* Compose text overlay — transparent background, glyph only */}
+                <Show when={props.showTextOverlay && !bubble.isExcluded && !!bubble.translatedText}>
+                  <foreignObject
+                    x={svgRect().x}
+                    y={svgRect().y}
+                    width={svgRect().w}
+                    height={svgRect().h}
+                    style={{ "pointer-events": "none" }}
+                  >
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "flex",
+                        "align-items": "center",
+                        "justify-content": "center",
+                        "font-family": bubble.fontFamily ?? "sans-serif",
+                        "font-size": bubble.fontSizeOverride
+                          ? `${bubble.fontSizeOverride * layout().scale}px`
+                          : `${Math.max(8, Math.min(14, svgRect().h / 5))}px`,
+                        "font-weight": "bold",
+                        color: "#1a1a1a",
+                        "text-align": "center",
+                        padding: "4px",
+                        overflow: "hidden",
+                        "word-break": "break-word",
+                        "line-height": "1.25",
+                        "box-sizing": "border-box",
+                      }}
+                    >
+                      {bubble.translatedText}
+                    </div>
+                  </foreignObject>
                 </Show>
               </g>
             );

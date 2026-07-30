@@ -108,6 +108,8 @@ public sealed class PageTranslationService(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "OCR failed for bubble {I} — skipping", i);
+                // Persist the bubble geometry so RerenderAsync can still inpaint it.
+                await LogBubbleAsync(jobId, i, bubbles[i], "", "");
                 continue;
             }
 
@@ -115,6 +117,8 @@ public sealed class PageTranslationService(
             if (string.IsNullOrEmpty(sourceText))
             {
                 log?.Invoke(new("log", $"Bubble {i + 1}: no text found", "ocr", 0.15 + 0.30 * ocrFrac));
+                // Persist the bubble geometry so RerenderAsync can still inpaint it.
+                await LogBubbleAsync(jobId, i, bubbles[i], "", "");
                 continue;
             }
 
@@ -145,24 +149,35 @@ public sealed class PageTranslationService(
             await LogBubbleAsync(jobId, i, bubbles[i], sourceText, translated);
         }
 
-        // ── 3. Inpainting placeholder ─────────────────────────────────────────
-        // White-fill is applied inside TypesettingService.RenderTranslations per bubble.
-        // A real LaMa inpaint model would go here once available.
+        // ── 3. Inpainting — white-fill all bubbles, save inpainted.png ───────
         log?.Invoke(new("log", "Removing original text (white-fill)...", "inpainting", 0.72));
         progress.Report(new("inpainting", 0.72));
 
-        // ── 4. Typeset ────────────────────────────────────────────────────────
+        // Inpaint every detected bubble, not just those with a translation —
+        // a bubble may have failed OCR but still needs its background cleaned.
+        var allBubbleFills = bubbles
+            .Select(b => new BubbleTranslation(b, "", ""))
+            .ToList();
+        var inpaintedPng  = await Task.Run(() => typesetter.WhiteFillAll(imagePng, allBubbleFills), ct);
+        var inpaintedPath = Path.Combine(jobDir, "inpainted.png");
+        await File.WriteAllBytesAsync(inpaintedPath, inpaintedPng, ct);
+        var relInpainted = Path.Combine("jobs", jobId, "inpainted.png");
+
+        // ── 4. Typeset — text glyphs only on top of already-inpainted image ──
+        // RenderTextOnly skips the white-fill step; the clean background is
+        // provided by inpainted.png. Swapping a real inpaint model (LaMa etc.)
+        // into step 3 will automatically improve result quality here.
         log?.Invoke(new("log", "Rendering translated text...", "typesetting", 0.88));
         progress.Report(new("typesetting", 0.88));
 
         var resultPng = await Task.Run(
-            () => typesetter.RenderTranslations(imagePng, translations), ct);
+            () => typesetter.RenderTextOnly(inpaintedPng, translations), ct);
 
         // ── 5. Persist result image + update job row ──────────────────────────
         var resultPath = Path.Combine(jobDir, "result.png");
         await File.WriteAllBytesAsync(resultPath, resultPng, ct);
         var relResult = Path.Combine("jobs", jobId, "result.png");
-        await FinalizeJobRowAsync(jobId, relResult, translations.Count);
+        await FinalizeJobRowAsync(jobId, relInpainted, relResult, translations.Count);
 
         log?.Invoke(new("log", "Done ✓", "done", 1.0));
         progress.Report(new("done", 1.0));
@@ -250,12 +265,55 @@ public sealed class PageTranslationService(
             new BubbleBox(l.BubbleX, l.BubbleY, l.BubbleW, l.BubbleH, l.Confidence),
             l.SourceText, l.TranslatedText, l.FontFamily, l.FontSizeOverride)).ToList();
 
+        // Fetch all bubble boxes for inpainting (includes bubbles without translations)
+        var allBubbleLogs = db.PageTranslationLogs
+            .Where(l => l.JobId == jobId && !l.IsExcluded)
+            .OrderBy(l => l.BubbleIndex)
+            .ToList();
+        var allBubbleFills = allBubbleLogs
+            .Select(l => new BubbleTranslation(
+                new BubbleBox(l.BubbleX, l.BubbleY, l.BubbleW, l.BubbleH, l.Confidence), "", ""))
+            .ToList();
+
         var imgLock = GetImageLock(jobId);
         await imgLock.WaitAsync(ct);
         try
         {
-            var imagePng  = await File.ReadAllBytesAsync(originalPath, ct);
-            var resultPng = await Task.Run(() => typesetter.RenderTranslations(imagePng, translations, padding), ct);
+            var originalPng   = await File.ReadAllBytesAsync(originalPath, ct);
+            var inpaintedPath = Path.Combine(config.JobsDir, jobId, "inpainted.png");
+
+            if (allBubbleFills.Count > 0)
+            {
+                // Regenerate inpainted.png from current bubble positions so moved/
+                // resized boxes are reflected in the clean background layer.
+                var freshInpainted = await Task.Run(
+                    () => typesetter.WhiteFillAll(originalPng, allBubbleFills), ct);
+                await File.WriteAllBytesAsync(inpaintedPath, freshInpainted, ct);
+
+                var job2 = await db.PageTranslationJobs.FindAsync(jobId);
+                if (job2 is not null)
+                    job2.InpaintedImagePath = Path.Combine("jobs", jobId, "inpainted.png");
+            }
+            else if (File.Exists(inpaintedPath))
+            {
+                // No non-excluded bubbles — stale inpainted.png would cause the
+                // base-image check below to use RenderTextOnly on a stale file.
+                // Delete it so we fall back to the original + RenderTranslations path.
+                File.Delete(inpaintedPath);
+                var job2 = await db.PageTranslationJobs.FindAsync(jobId);
+                if (job2 is not null)
+                    job2.InpaintedImagePath = null;
+            }
+
+            // Render text on the freshly regenerated inpainted base, or fall back
+            // to the legacy white-fill+text path for jobs without bubble data.
+            var basePng   = File.Exists(inpaintedPath)
+                ? await File.ReadAllBytesAsync(inpaintedPath, ct)
+                : originalPng;
+            var resultPng = File.Exists(inpaintedPath)
+                ? await Task.Run(() => typesetter.RenderTextOnly(basePng, translations, padding), ct)
+                : await Task.Run(() => typesetter.RenderTranslations(basePng, translations, padding), ct);
+
             var resultPath = Path.Combine(config.JobsDir, jobId, "result.png");
             await File.WriteAllBytesAsync(resultPath, resultPng, ct);
 
@@ -449,7 +507,7 @@ public sealed class PageTranslationService(
         }
     }
 
-    private async Task FinalizeJobRowAsync(string jobId, string resultPath, int bubbleCount)
+    private async Task FinalizeJobRowAsync(string jobId, string inpaintedPath, string resultPath, int bubbleCount)
     {
         try
         {
@@ -458,10 +516,11 @@ public sealed class PageTranslationService(
             var job = await db.PageTranslationJobs.FindAsync(jobId);
             if (job is not null)
             {
-                job.Status          = "done";
-                job.ResultImagePath = resultPath;
-                job.BubbleCount     = bubbleCount;
-                job.CompletedAt     = DateTime.UtcNow;
+                job.Status             = "done";
+                job.InpaintedImagePath = inpaintedPath;
+                job.ResultImagePath    = resultPath;
+                job.BubbleCount        = bubbleCount;
+                job.CompletedAt        = DateTime.UtcNow;
                 await db.SaveChangesAsync();
             }
         }

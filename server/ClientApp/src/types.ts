@@ -23,6 +23,7 @@ export interface PageTranslationJob {
   title: string;
   status: "processing" | "done" | "error";
   originalImagePath: string;
+  inpaintedImagePath?: string;
   resultImagePath?: string;
   originalWidth: number;
   originalHeight: number;

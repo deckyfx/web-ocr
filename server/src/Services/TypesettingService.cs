@@ -67,6 +67,72 @@ public sealed class TypesettingService
     }
 
     /// <summary>
+    /// Renders translated text onto <paramref name="imagePng"/> WITHOUT white-filling
+    /// the bubble regions first. The caller is responsible for supplying an already-inpainted
+    /// image (e.g. inpainted.png from step 3). Text glyphs are drawn directly on whatever
+    /// background exists — producing transparent-fill text when the background is already clean.
+    /// </summary>
+    public byte[] RenderTextOnly(byte[] imagePng, IReadOnlyList<BubbleTranslation> translations, int padding = 0)
+    {
+        if (translations.Count == 0) return imagePng;
+
+        using var bitmap = SKBitmap.Decode(imagePng);
+        if (bitmap is null)
+        {
+            _logger.LogWarning("TypesettingService: failed to decode image for RenderTextOnly — returning original");
+            return imagePng;
+        }
+
+        using var canvas = new SKCanvas(bitmap);
+
+        foreach (var t in translations)
+        {
+            if (string.IsNullOrWhiteSpace(t.TranslatedText)) continue;
+            var box = padding > 0
+                ? new BubbleBox(t.Box.X + padding, t.Box.Y + padding,
+                    Math.Max(1, t.Box.Width  - 2 * padding),
+                    Math.Max(1, t.Box.Height - 2 * padding),
+                    t.Box.Confidence)
+                : t.Box;
+            RenderTextInBubble(canvas, box, t.TranslatedText, t.FontFamily, t.FontSizeOverride, whiteFill: false);
+        }
+
+        canvas.Flush();
+
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data  = image.Encode(SKEncodedImageFormat.Png, 95);
+        return data.ToArray();
+    }
+
+    /// <summary>
+    /// White-fills all bubble regions (no text). Returns the inpainted-only image
+    /// for side-by-side comparison with the original and final result.
+    /// </summary>
+    public byte[] WhiteFillAll(byte[] imagePng, IReadOnlyList<BubbleTranslation> translations)
+    {
+        if (translations.Count == 0) return imagePng;
+
+        using var bitmap = SKBitmap.Decode(imagePng);
+        if (bitmap is null)
+        {
+            _logger.LogWarning("TypesettingService: failed to decode image for WhiteFillAll — returning original");
+            return imagePng;
+        }
+
+        using var canvas = new SKCanvas(bitmap);
+        using var paint  = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
+
+        foreach (var t in translations)
+            canvas.DrawRect(t.Box.X, t.Box.Y, t.Box.Width, t.Box.Height, paint);
+
+        canvas.Flush();
+
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data  = image.Encode(SKEncodedImageFormat.Png, 95);
+        return data.ToArray();
+    }
+
+    /// <summary>
     /// White-fills a single bubble region (no text). Used for per-bubble re-inpaint.
     /// </summary>
     public byte[] WhiteFillBubble(byte[] imagePng, BubbleBox box)
@@ -115,7 +181,8 @@ public sealed class TypesettingService
         BubbleBox box,
         string text,
         string? fontFamily       = null,
-        int?    fontSizeOverride = null)
+        int?    fontSizeOverride = null,
+        bool    whiteFill        = true)
     {
         // Target area = 85 % of the bubble so text has some margin
         float targetW = box.Width  * 0.85f;
@@ -125,9 +192,14 @@ public sealed class TypesettingService
 
         if (targetW < 20 || targetH < 20) return;
 
-        // White-fill the bubble region (removes original Japanese text)
-        using var fillPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
-        canvas.DrawRect(box.X, box.Y, box.Width, box.Height, fillPaint);
+        if (whiteFill)
+        {
+            // White-fill the bubble region (removes original Japanese text).
+            // A proper inpaint model (LaMa/diffusion) replaces this step entirely;
+            // when inpainted.png already exists, callers should pass whiteFill=false.
+            using var fillPaint = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
+            canvas.DrawRect(box.X, box.Y, box.Width, box.Height, fillPaint);
+        }
 
         var family = string.IsNullOrWhiteSpace(fontFamily) ? "sans-serif" : fontFamily;
         using var typeface = SKTypeface.FromFamilyName(

@@ -1,4 +1,5 @@
-import { createResource, createSignal, Show, Switch, Match } from "solid-js";
+import { createResource, createSignal, Show, For } from "solid-js";
+import type { JSX } from "solid-js";
 import { useParams, useNavigate } from "@solidjs/router";
 import {
   ArrowLeft,
@@ -14,6 +15,7 @@ import {
   deleteJob,
   getJob,
   getJobBubbles,
+  jobInpaintedUrl,
   jobOriginalUrl,
   jobResultUrl,
   redetectJob,
@@ -31,12 +33,24 @@ import { BubbleEditor } from "../components/BubbleEditor";
 import type { BubbleUpdatePatch } from "../components/BubbleEditor";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusBadge } from "./JobsListPage";
+import type { PageTranslationJob, TranslationBubble } from "../types";
 
 // ---------------------------------------------------------------------------
-// View mode type
+// Stage type
 // ---------------------------------------------------------------------------
 
-type ViewMode = "original" | "result" | "sidebyside";
+/** Pipeline stage identifier. Clicking stage buttons in the toolbar selects
+ *  up to 2 at a time; when 2 are active they display side-by-side. */
+type Stage = "original" | "inpainted" | "compose" | "result";
+
+const STAGE_LABELS: Record<Stage, string> = {
+  original:  "1 · Original",
+  inpainted: "2 · Inpainted",
+  compose:   "3 · Compose",
+  result:    "4 · Result",
+};
+
+const ALL_STAGES: Stage[] = ["original", "inpainted", "compose", "result"];
 
 // ---------------------------------------------------------------------------
 // Page
@@ -47,7 +61,7 @@ export function StudioPage() {
   const navigate = useNavigate();
 
   // Resources
-  const [job] = createResource(() => params.id, getJob);
+  const [job, { refetch: refetchJob }] = createResource(() => params.id, getJob);
   const [bubbles, { refetch: refetchBubbles }] = createResource(
     () => params.id,
     getJobBubbles,
@@ -55,7 +69,8 @@ export function StudioPage() {
 
   // UI state
   const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
-  const [viewMode, setViewMode] = createSignal<ViewMode>("result");
+  // Stage picker: up to 2 active stages shown side-by-side
+  const [activeStages, setActiveStages] = createSignal<Stage[]>(["result"]);
   const [isRedetecting, setIsRedetecting] = createSignal(false);
   const [isRetranslating, setIsRetranslating] = createSignal(false);
   const [isRerendering, setIsRerendering] = createSignal(false);
@@ -67,8 +82,8 @@ export function StudioPage() {
   const [bubblePadding, setBubblePadding] = createSignal<number>(
     Number.isNaN(storedPadding) ? 0 : storedPadding,
   );
-  // Incremented after reinpaint/repatch so result image URL cache-busts
-  const [resultImageVersion, setResultImageVersion] = createSignal(0);
+  // Incremented after reinpaint/repatch so image URLs cache-bust
+  const [imageVersion, setImageVersion] = createSignal(0);
 
   // Derived
   const bubbleList = () => bubbles() ?? [];
@@ -78,6 +93,25 @@ export function StudioPage() {
       ? (bubbleList().find((b) => b.bubbleIndex === idx) ?? null)
       : null;
   };
+
+  // ---------------------------------------------------------------------------
+  // Stage toggle — max 2 active; clicking a third replaces the oldest
+  // ---------------------------------------------------------------------------
+
+  function toggleStage(s: Stage): void {
+    setActiveStages((prev) => {
+      if (prev.includes(s)) {
+        // Deselect — always keep at least 1
+        const next = prev.filter((x) => x !== s);
+        return next.length > 0 ? next : prev;
+      }
+      if (prev.length >= 2) {
+        // Replace oldest (first in array)
+        return [prev[1]!, s];
+      }
+      return [...prev, s];
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // Action handlers
@@ -226,8 +260,8 @@ export function StudioPage() {
     try {
       await rerenderJob(params.id, bubblePadding());
       await pollUntilDone();
-      await refetchBubbles();
-      setResultImageVersion((v) => v + 1);
+      await Promise.all([refetchJob(), refetchBubbles()]);
+      setImageVersion((v) => v + 1);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Re-render failed");
     } finally {
@@ -244,7 +278,6 @@ export function StudioPage() {
     if (!b) return;
     const updated = await reocrBubble(params.id, b.bubbleIndex);
     await refetchBubbles();
-    // Keep selection on the same bubble so BubbleEditor refreshes via reactive signal
     setSelectedIndex(updated.bubbleIndex);
   }
 
@@ -260,22 +293,18 @@ export function StudioPage() {
     const b = selectedBubble();
     if (!b) return;
     await reinpaintBubble(params.id, b.bubbleIndex, bubblePadding());
-    setResultImageVersion((v) => v + 1);
+    setImageVersion((v) => v + 1);
   }
 
   async function handleBubbleRepatch(): Promise<void> {
     const b = selectedBubble();
     if (!b) return;
     await repatchBubble(params.id, b.bubbleIndex, bubblePadding());
-    setResultImageVersion((v) => v + 1);
+    setImageVersion((v) => v + 1);
   }
 
-  // Cache-busted result URL
-  const resultUrl = () =>
-    `${jobResultUrl(params.id)}?v=${resultImageVersion()}`;
-
   // ---------------------------------------------------------------------------
-  // Sub-components
+  // Canvas props helper
   // ---------------------------------------------------------------------------
 
   const canvasProps = () => ({
@@ -291,6 +320,68 @@ export function StudioPage() {
       await handleDraw(x, y, w, h);
     },
   });
+
+  // ---------------------------------------------------------------------------
+  // Stage panel renderer
+  // ---------------------------------------------------------------------------
+
+  function renderStage(stage: Stage, j: PageTranslationJob): JSX.Element {
+    const v = imageVersion();
+    const inpaintedUrl = () => `${jobInpaintedUrl(params.id)}?v=${v}`;
+    const resultUrl    = () => `${jobResultUrl(params.id)}?v=${v}`;
+
+    const noImagePlaceholder = (label: string) => (
+      <div class="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400">
+        <ImageOff class="h-10 w-10 opacity-40" />
+        <p class="text-sm">{label}</p>
+        <p class="text-xs">Run Re-render to generate this image.</p>
+      </div>
+    );
+
+    switch (stage) {
+      case "original":
+        return (
+          <BubbleCanvas
+            {...canvasProps()}
+            imageUrl={jobOriginalUrl(params.id)}
+            imageWidth={j.originalWidth}
+            imageHeight={j.originalHeight}
+          />
+        );
+
+      case "inpainted":
+        return j.inpaintedImagePath ? (
+          <BubbleCanvas
+            {...canvasProps()}
+            imageUrl={inpaintedUrl()}
+            imageWidth={j.originalWidth}
+            imageHeight={j.originalHeight}
+          />
+        ) : noImagePlaceholder("No inpainted image yet");
+
+      case "compose":
+        // Inpainted background + editable text overlay (glyphs only, no burn yet)
+        return j.inpaintedImagePath ? (
+          <BubbleCanvas
+            {...canvasProps()}
+            imageUrl={inpaintedUrl()}
+            imageWidth={j.originalWidth}
+            imageHeight={j.originalHeight}
+            showTextOverlay
+          />
+        ) : noImagePlaceholder("No inpainted image yet");
+
+      case "result":
+        return j.resultImagePath ? (
+          <BubbleCanvas
+            {...canvasProps()}
+            imageUrl={resultUrl()}
+            imageWidth={j.originalWidth}
+            imageHeight={j.originalHeight}
+          />
+        ) : noImagePlaceholder("No result image yet");
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Render
@@ -327,24 +418,31 @@ export function StudioPage() {
           )}
         </Show>
 
-        {/* View mode toggle */}
+        {/* Stage picker — click 1 or 2 stages; 2 shows side-by-side */}
         <div class="ml-4 flex overflow-hidden rounded-lg border border-slate-200 text-xs">
-          {(["original", "result", "sidebyside"] as ViewMode[]).map((mode) => (
-            <button
-              onClick={() => setViewMode(mode)}
-              class={`px-2.5 py-1.5 font-medium transition-colors ${
-                viewMode() === mode
-                  ? "bg-violet-600 text-white"
-                  : "bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {mode === "original"
-                ? "Original"
-                : mode === "result"
-                  ? "Result"
-                  : "Side by side"}
-            </button>
-          ))}
+          <For each={ALL_STAGES}>
+            {(stage) => {
+              const isActive = () => activeStages().includes(stage);
+              return (
+                <button
+                  onClick={() => toggleStage(stage)}
+                  aria-pressed={isActive()}
+                  class={`px-2.5 py-1.5 font-medium transition-colors border-r border-slate-200 last:border-r-0 ${
+                    isActive()
+                      ? "bg-violet-600 text-white"
+                      : "bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                  title={
+                    isActive()
+                      ? `Hide ${STAGE_LABELS[stage]}`
+                      : `Show ${STAGE_LABELS[stage]}`
+                  }
+                >
+                  {STAGE_LABELS[stage]}
+                </button>
+              );
+            }}
+          </For>
         </div>
 
         {/* Bubble display padding */}
@@ -486,75 +584,42 @@ export function StudioPage() {
               />
             </aside>
 
-            {/* Centre — canvas */}
+            {/* Centre — stage panels (1 or 2 active) */}
             <main class="relative flex flex-1 overflow-hidden">
-              <Switch>
-                {/* Original */}
-                <Match when={viewMode() === "original"}>
-                  <BubbleCanvas
-                    {...canvasProps()}
-                    imageUrl={jobOriginalUrl(params.id)}
-                    imageWidth={j().originalWidth}
-                    imageHeight={j().originalHeight}
-                  />
-                </Match>
-
-                {/* Result */}
-                <Match when={viewMode() === "result"}>
-                  <Show
-                    when={j().resultImagePath}
-                    fallback={
-                      <div class="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400">
-                        <ImageOff class="h-10 w-10 opacity-40" />
-                        <p class="text-sm">No result image yet</p>
-                        <p class="text-xs">
-                          Run Re-render to generate the translated image.
-                        </p>
-                      </div>
-                    }
-                  >
-                    <BubbleCanvas
-                      {...canvasProps()}
-                      imageUrl={resultUrl()}
-                      imageWidth={j().originalWidth}
-                      imageHeight={j().originalHeight}
-                    />
-                  </Show>
-                </Match>
-
-                {/* Side by side */}
-                <Match when={viewMode() === "sidebyside"}>
-                  <div class="flex h-full w-full">
-                    <div class="flex-1 overflow-hidden border-r border-slate-700">
-                      <BubbleCanvas
-                        {...canvasProps()}
-                        imageUrl={jobOriginalUrl(params.id)}
-                        imageWidth={j().originalWidth}
-                        imageHeight={j().originalHeight}
-                      />
+              <Show
+                when={activeStages().length === 2}
+                fallback={
+                  /* Single stage — full width */
+                  <div class="relative flex flex-1 flex-col overflow-hidden">
+                    <div class="shrink-0 bg-slate-100 px-2 py-0.5 text-center text-xs font-medium text-slate-500">
+                      {STAGE_LABELS[activeStages()[0]!]}
                     </div>
                     <div class="flex-1 overflow-hidden">
-                      <Show
-                        when={j().resultImagePath}
-                        fallback={
-                          <div class="flex h-full flex-col items-center justify-center gap-3 text-slate-400">
-                            <ImageOff class="h-10 w-10 opacity-40" />
-                            <p class="text-sm">No result image yet</p>
-                            <p class="text-xs">Run Re-render to generate the translated image.</p>
-                          </div>
-                        }
-                      >
-                        <BubbleCanvas
-                          {...canvasProps()}
-                          imageUrl={resultUrl()}
-                          imageWidth={j().originalWidth}
-                          imageHeight={j().originalHeight}
-                        />
-                      </Show>
+                      {renderStage(activeStages()[0]!, j())}
                     </div>
                   </div>
-                </Match>
-              </Switch>
+                }
+              >
+                {/* Side-by-side — two stages */}
+                <div class="flex h-full w-full">
+                  <div class="flex flex-col flex-1 overflow-hidden border-r border-slate-200">
+                    <div class="shrink-0 bg-slate-100 px-2 py-0.5 text-center text-xs font-medium text-slate-500">
+                      {STAGE_LABELS[activeStages()[0]!]}
+                    </div>
+                    <div class="flex-1 overflow-hidden">
+                      {renderStage(activeStages()[0]!, j())}
+                    </div>
+                  </div>
+                  <div class="flex flex-col flex-1 overflow-hidden">
+                    <div class="shrink-0 bg-slate-100 px-2 py-0.5 text-center text-xs font-medium text-slate-500">
+                      {STAGE_LABELS[activeStages()[1]!]}
+                    </div>
+                    <div class="flex-1 overflow-hidden">
+                      {renderStage(activeStages()[1]!, j())}
+                    </div>
+                  </div>
+                </div>
+              </Show>
             </main>
 
             {/* Right — bubble editor */}
