@@ -149,7 +149,12 @@ public sealed class PageTranslationService(
         log?.Invoke(new("log", "Removing original text (white-fill)...", "inpainting", 0.72));
         progress.Report(new("inpainting", 0.72));
 
-        var inpaintedPng  = await Task.Run(() => typesetter.WhiteFillAll(imagePng, translations), ct);
+        // Inpaint every detected bubble, not just those with a translation —
+        // a bubble may have failed OCR but still needs its background cleaned.
+        var allBubbleFills = bubbles
+            .Select(b => new BubbleTranslation(b, "", ""))
+            .ToList();
+        var inpaintedPng  = await Task.Run(() => typesetter.WhiteFillAll(imagePng, allBubbleFills), ct);
         var inpaintedPath = Path.Combine(jobDir, "inpainted.png");
         await File.WriteAllBytesAsync(inpaintedPath, inpaintedPng, ct);
         var relInpainted = Path.Combine("jobs", jobId, "inpainted.png");
@@ -256,18 +261,42 @@ public sealed class PageTranslationService(
             new BubbleBox(l.BubbleX, l.BubbleY, l.BubbleW, l.BubbleH, l.Confidence),
             l.SourceText, l.TranslatedText, l.FontFamily, l.FontSizeOverride)).ToList();
 
+        // Fetch all bubble boxes for inpainting (includes bubbles without translations)
+        var allBubbleLogs = db.PageTranslationLogs
+            .Where(l => l.JobId == jobId && !l.IsExcluded)
+            .OrderBy(l => l.BubbleIndex)
+            .ToList();
+        var allBubbleFills = allBubbleLogs
+            .Select(l => new BubbleTranslation(
+                new BubbleBox(l.BubbleX, l.BubbleY, l.BubbleW, l.BubbleH, l.Confidence), "", ""))
+            .ToList();
+
         var imgLock = GetImageLock(jobId);
         await imgLock.WaitAsync(ct);
         try
         {
-            // Use inpainted.png as base if it exists (text-only rendering keeps
-            // the clean inpainted background). Fall back to original.png for jobs
-            // created before the inpainted-image feature was added.
+            var originalPng   = await File.ReadAllBytesAsync(originalPath, ct);
             var inpaintedPath = Path.Combine(config.JobsDir, jobId, "inpainted.png");
-            var basePath      = File.Exists(inpaintedPath) ? inpaintedPath : originalPath;
-            var basePng       = await File.ReadAllBytesAsync(basePath, ct);
 
-            var resultPng  = File.Exists(inpaintedPath)
+            if (allBubbleFills.Count > 0)
+            {
+                // Regenerate inpainted.png from current bubble positions so moved/
+                // resized boxes are reflected in the clean background layer.
+                var freshInpainted = await Task.Run(
+                    () => typesetter.WhiteFillAll(originalPng, allBubbleFills), ct);
+                await File.WriteAllBytesAsync(inpaintedPath, freshInpainted, ct);
+
+                var job2 = await db.PageTranslationJobs.FindAsync(jobId);
+                if (job2 is not null)
+                    job2.InpaintedImagePath = Path.Combine("jobs", jobId, "inpainted.png");
+            }
+
+            // Render text on the freshly regenerated inpainted base, or fall back
+            // to the legacy white-fill+text path for jobs without bubble data.
+            var basePng   = File.Exists(inpaintedPath)
+                ? await File.ReadAllBytesAsync(inpaintedPath, ct)
+                : originalPng;
+            var resultPng = File.Exists(inpaintedPath)
                 ? await Task.Run(() => typesetter.RenderTextOnly(basePng, translations, padding), ct)
                 : await Task.Run(() => typesetter.RenderTranslations(basePng, translations, padding), ct);
 

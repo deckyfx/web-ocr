@@ -61,7 +61,7 @@ export function StudioPage() {
   const navigate = useNavigate();
 
   // Resources
-  const [job] = createResource(() => params.id, getJob);
+  const [job, { refetch: refetchJob }] = createResource(() => params.id, getJob);
   const [bubbles, { refetch: refetchBubbles }] = createResource(
     () => params.id,
     getJobBubbles,
@@ -260,7 +260,7 @@ export function StudioPage() {
     try {
       await rerenderJob(params.id, bubblePadding());
       await pollUntilDone();
-      await refetchBubbles();
+      await Promise.all([refetchJob(), refetchBubbles()]);
       setImageVersion((v) => v + 1);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Re-render failed");
@@ -426,6 +426,7 @@ export function StudioPage() {
               return (
                 <button
                   onClick={() => toggleStage(stage)}
+                  aria-pressed={isActive()}
                   class={`px-2.5 py-1.5 font-medium transition-colors border-r border-slate-200 last:border-r-0 ${
                     isActive()
                       ? "bg-violet-600 text-white"

@@ -538,7 +538,10 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                         display: "flex",
                         "align-items": "center",
                         "justify-content": "center",
-                        "font-size": `${Math.max(8, Math.min(14, svgRect().h / 5))}px`,
+                        "font-family": bubble.fontFamily ?? "sans-serif",
+                        "font-size": bubble.fontSizeOverride
+                          ? `${bubble.fontSizeOverride * layout().scale}px`
+                          : `${Math.max(8, Math.min(14, svgRect().h / 5))}px`,
                         "font-weight": "bold",
                         color: "#1a1a1a",
                         "text-align": "center",
