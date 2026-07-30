@@ -89,6 +89,18 @@ public static class PortalRoutes
             return Results.File(fullPath, "image/png");
         });
 
+        g.MapGet("/jobs/{id}/inpainted", async (string id, AppDbContext db, AppConfig config, HttpContext ctx) =>
+        {
+            var job = await db.PageTranslationJobs.FindAsync(id);
+            if (job is null || string.IsNullOrEmpty(job.InpaintedImagePath)) return Results.NotFound();
+
+            var fullPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(config.DatabasePath))!, job.InpaintedImagePath);
+            if (!File.Exists(fullPath)) return Results.NotFound();
+
+            ctx.Response.Headers["Cache-Control"] = "no-cache";
+            return Results.File(fullPath, "image/png");
+        });
+
         g.MapGet("/jobs/{id}/result", async (string id, AppDbContext db, AppConfig config, HttpContext ctx) =>
         {
             var job = await db.PageTranslationJobs.FindAsync(id);

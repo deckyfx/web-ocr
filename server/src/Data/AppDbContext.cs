@@ -33,8 +33,9 @@ public class PageTranslationJob
     public string    Id                { get; set; } = "";
     public string    Title             { get; set; } = "";
     public string    Status            { get; set; } = "processing";   // processing | done | error
-    public string    OriginalImagePath { get; set; } = "";
-    public string?   ResultImagePath   { get; set; }
+    public string    OriginalImagePath  { get; set; } = "";
+    public string?   InpaintedImagePath { get; set; }
+    public string?   ResultImagePath    { get; set; }
     public int       OriginalWidth     { get; set; }
     public int       OriginalHeight    { get; set; }
     public int       BubbleCount       { get; set; }

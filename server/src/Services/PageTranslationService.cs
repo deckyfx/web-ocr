@@ -145,24 +145,30 @@ public sealed class PageTranslationService(
             await LogBubbleAsync(jobId, i, bubbles[i], sourceText, translated);
         }
 
-        // ── 3. Inpainting placeholder ─────────────────────────────────────────
-        // White-fill is applied inside TypesettingService.RenderTranslations per bubble.
-        // A real LaMa inpaint model would go here once available.
+        // ── 3. Inpainting — white-fill all bubbles, save inpainted.png ───────
         log?.Invoke(new("log", "Removing original text (white-fill)...", "inpainting", 0.72));
         progress.Report(new("inpainting", 0.72));
 
-        // ── 4. Typeset ────────────────────────────────────────────────────────
+        var inpaintedPng  = await Task.Run(() => typesetter.WhiteFillAll(imagePng, translations), ct);
+        var inpaintedPath = Path.Combine(jobDir, "inpainted.png");
+        await File.WriteAllBytesAsync(inpaintedPath, inpaintedPng, ct);
+        var relInpainted = Path.Combine("jobs", jobId, "inpainted.png");
+
+        // ── 4. Typeset — text glyphs only on top of already-inpainted image ──
+        // RenderTextOnly skips the white-fill step; the clean background is
+        // provided by inpainted.png. Swapping a real inpaint model (LaMa etc.)
+        // into step 3 will automatically improve result quality here.
         log?.Invoke(new("log", "Rendering translated text...", "typesetting", 0.88));
         progress.Report(new("typesetting", 0.88));
 
         var resultPng = await Task.Run(
-            () => typesetter.RenderTranslations(imagePng, translations), ct);
+            () => typesetter.RenderTextOnly(inpaintedPng, translations), ct);
 
         // ── 5. Persist result image + update job row ──────────────────────────
         var resultPath = Path.Combine(jobDir, "result.png");
         await File.WriteAllBytesAsync(resultPath, resultPng, ct);
         var relResult = Path.Combine("jobs", jobId, "result.png");
-        await FinalizeJobRowAsync(jobId, relResult, translations.Count);
+        await FinalizeJobRowAsync(jobId, relInpainted, relResult, translations.Count);
 
         log?.Invoke(new("log", "Done ✓", "done", 1.0));
         progress.Report(new("done", 1.0));
@@ -254,8 +260,17 @@ public sealed class PageTranslationService(
         await imgLock.WaitAsync(ct);
         try
         {
-            var imagePng  = await File.ReadAllBytesAsync(originalPath, ct);
-            var resultPng = await Task.Run(() => typesetter.RenderTranslations(imagePng, translations, padding), ct);
+            // Use inpainted.png as base if it exists (text-only rendering keeps
+            // the clean inpainted background). Fall back to original.png for jobs
+            // created before the inpainted-image feature was added.
+            var inpaintedPath = Path.Combine(config.JobsDir, jobId, "inpainted.png");
+            var basePath      = File.Exists(inpaintedPath) ? inpaintedPath : originalPath;
+            var basePng       = await File.ReadAllBytesAsync(basePath, ct);
+
+            var resultPng  = File.Exists(inpaintedPath)
+                ? await Task.Run(() => typesetter.RenderTextOnly(basePng, translations, padding), ct)
+                : await Task.Run(() => typesetter.RenderTranslations(basePng, translations, padding), ct);
+
             var resultPath = Path.Combine(config.JobsDir, jobId, "result.png");
             await File.WriteAllBytesAsync(resultPath, resultPng, ct);
 
@@ -449,7 +464,7 @@ public sealed class PageTranslationService(
         }
     }
 
-    private async Task FinalizeJobRowAsync(string jobId, string resultPath, int bubbleCount)
+    private async Task FinalizeJobRowAsync(string jobId, string inpaintedPath, string resultPath, int bubbleCount)
     {
         try
         {
@@ -458,10 +473,11 @@ public sealed class PageTranslationService(
             var job = await db.PageTranslationJobs.FindAsync(jobId);
             if (job is not null)
             {
-                job.Status          = "done";
-                job.ResultImagePath = resultPath;
-                job.BubbleCount     = bubbleCount;
-                job.CompletedAt     = DateTime.UtcNow;
+                job.Status             = "done";
+                job.InpaintedImagePath = inpaintedPath;
+                job.ResultImagePath    = resultPath;
+                job.BubbleCount        = bubbleCount;
+                job.CompletedAt        = DateTime.UtcNow;
                 await db.SaveChangesAsync();
             }
         }

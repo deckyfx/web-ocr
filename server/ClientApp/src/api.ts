@@ -315,6 +315,10 @@ export function jobOriginalUrl(id: string): string {
   return `/api/portal/jobs/${id}/original`;
 }
 
+export function jobInpaintedUrl(id: string): string {
+  return `/api/portal/jobs/${id}/inpainted`;
+}
+
 export function jobResultUrl(id: string): string {
   return `/api/portal/jobs/${id}/result`;
 }
