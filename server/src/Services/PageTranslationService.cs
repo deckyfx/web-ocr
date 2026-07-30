@@ -108,6 +108,8 @@ public sealed class PageTranslationService(
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "OCR failed for bubble {I} — skipping", i);
+                // Persist the bubble geometry so RerenderAsync can still inpaint it.
+                await LogBubbleAsync(jobId, i, bubbles[i], "", "");
                 continue;
             }
 
@@ -115,6 +117,8 @@ public sealed class PageTranslationService(
             if (string.IsNullOrEmpty(sourceText))
             {
                 log?.Invoke(new("log", $"Bubble {i + 1}: no text found", "ocr", 0.15 + 0.30 * ocrFrac));
+                // Persist the bubble geometry so RerenderAsync can still inpaint it.
+                await LogBubbleAsync(jobId, i, bubbles[i], "", "");
                 continue;
             }
 
@@ -289,6 +293,16 @@ public sealed class PageTranslationService(
                 var job2 = await db.PageTranslationJobs.FindAsync(jobId);
                 if (job2 is not null)
                     job2.InpaintedImagePath = Path.Combine("jobs", jobId, "inpainted.png");
+            }
+            else if (File.Exists(inpaintedPath))
+            {
+                // No non-excluded bubbles — stale inpainted.png would cause the
+                // base-image check below to use RenderTextOnly on a stale file.
+                // Delete it so we fall back to the original + RenderTranslations path.
+                File.Delete(inpaintedPath);
+                var job2 = await db.PageTranslationJobs.FindAsync(jobId);
+                if (job2 is not null)
+                    job2.InpaintedImagePath = null;
             }
 
             // Render text on the freshly regenerated inpainted base, or fall back
