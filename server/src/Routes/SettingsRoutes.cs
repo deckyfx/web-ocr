@@ -3,6 +3,9 @@ namespace WebOcrServer;
 /// <summary>Narrow patch body for updating only the preferred translation engine.</summary>
 public record EngineUpdateRequest(string Engine);
 
+/// <summary>Narrow patch body for updating only the preferred inpaint engine.</summary>
+public record InpaintEngineUpdateRequest(string Engine);
+
 public static class SettingsRoutes
 {
     public static void MapSettingsRoutes(this WebApplication app)
@@ -32,6 +35,24 @@ public static class SettingsRoutes
 
             var saved = await store.UpdateEngineAsync(req.Engine);
             return Results.Ok(new { preferred_translation_engine = saved.PreferredTranslationEngine });
+        });
+
+        // PATCH /api/settings/inpaint-engine — updates only preferred_inpaint_engine.
+        app.MapMethods("/api/settings/inpaint-engine", ["PATCH"], async (
+            InpaintEngineUpdateRequest req, ModelSettingsStore store) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Engine))
+                return Results.BadRequest(new { error = "engine is required" });
+
+            try
+            {
+                var saved = await store.UpdateInpaintEngineAsync(req.Engine);
+                return Results.Ok(new { preferred_inpaint_engine = saved.PreferredInpaintEngine });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
     }
 }

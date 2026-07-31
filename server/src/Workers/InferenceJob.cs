@@ -14,4 +14,9 @@ public record TranslateJob(
     TaskCompletionSource<object> Tcs
 ) : InferenceJob(Tcs);
 
-// Future: InpaintJob(byte[] Mask, byte[] Source, TaskCompletionSource<object> Tcs) : InferenceJob(Tcs)
+public record InpaintJob(
+    byte[]                       ImagePng,
+    IReadOnlyList<BubbleBox>     Bubbles,
+    int                          MaskDilate,
+    TaskCompletionSource<object> Tcs
+) : InferenceJob(Tcs);

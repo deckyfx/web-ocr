@@ -105,6 +105,7 @@ public static class ServiceExtensions
         builder.Services.AddSingleton<TranslationJobStore>();
         builder.Services.AddSingleton<BubbleDetectionService>();
         builder.Services.AddSingleton<TypesettingService>();
+        builder.Services.AddSingleton<InpaintService>();
         builder.Services.AddSingleton<PageTranslationService>();
 
         // Blazor with Interactive Server mode (required for IJSRuntime / JS Interop)

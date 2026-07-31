@@ -46,6 +46,12 @@ public sealed class AllModelSettings
     /// Valid values: "auto" (DeepL if configured, else local), "local", "deepl".
     /// </summary>
     public string PreferredTranslationEngine { get; set; } = "auto";
+
+    /// <summary>
+    /// Inpainting engine to use when removing text from bubbles.
+    /// Valid values: "auto" (LaMa if model ready, else flood_fill), "flood_fill", "lama".
+    /// </summary>
+    public string PreferredInpaintEngine { get; set; } = "auto";
 }
 
 /// <summary>
@@ -140,6 +146,41 @@ public sealed class ModelSettingsStore
                 Inpaint   = current.Inpaint,
                 Bubble    = current.Bubble,
                 PreferredTranslationEngine = engine,
+                PreferredInpaintEngine     = current.PreferredInpaintEngine,
+            };
+            var dir = Path.GetDirectoryName(_filePath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            await File.WriteAllTextAsync(_filePath, JsonSerializer.Serialize(updated, JsonOpts));
+            _current = updated;
+            _logger.LogInformation("[ModelSettings] Persisted to {Path}", _filePath);
+            return _current;
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    /// <summary>
+    /// Atomically updates only the preferred inpaint engine and persists to disk.
+    /// </summary>
+    public async Task<AllModelSettings> UpdateInpaintEngineAsync(string engine)
+    {
+        if (string.IsNullOrWhiteSpace(engine))
+            throw new ArgumentException("Engine is required.", nameof(engine));
+        engine = engine.Trim().ToLowerInvariant();
+        if (engine is not ("auto" or "flood_fill" or "lama"))
+            throw new ArgumentException($"Invalid inpaint engine '{engine}'. Allowed values: auto, flood_fill, lama.", nameof(engine));
+
+        await _writeLock.WaitAsync();
+        try
+        {
+            var current = _current;
+            var updated = new AllModelSettings
+            {
+                Ocr       = current.Ocr,
+                Translate = current.Translate,
+                Inpaint   = current.Inpaint,
+                Bubble    = current.Bubble,
+                PreferredTranslationEngine = current.PreferredTranslationEngine,
+                PreferredInpaintEngine     = engine,
             };
             var dir = Path.GetDirectoryName(_filePath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
@@ -196,6 +237,8 @@ public sealed class ModelSettingsStore
                 Enabled = EvBool("BUBBLE_MODEL_ENABLED", false),
                 Files   = Ev("BUBBLE_MODEL_FILES") ?? "detector-v4-s_int8.onnx",
             },
+            PreferredInpaintEngine =
+                Ev("INPAINT_ENGINE") ?? "auto",
         };
     }
 
@@ -234,6 +277,13 @@ public sealed class ModelSettingsStore
                     : string.IsNullOrWhiteSpace(file.PreferredTranslationEngine)
                         ? env.PreferredTranslationEngine
                         : file.PreferredTranslationEngine,
+            PreferredInpaintEngine =
+                Environment.GetEnvironmentVariable("INPAINT_ENGINE") is { } rawIe
+                    && !string.IsNullOrWhiteSpace(rawIe)
+                    ? rawIe.Trim()
+                    : string.IsNullOrWhiteSpace(file.PreferredInpaintEngine)
+                        ? env.PreferredInpaintEngine
+                        : file.PreferredInpaintEngine,
         };
     }
 

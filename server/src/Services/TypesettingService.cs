@@ -117,8 +117,10 @@ public sealed class TypesettingService
     }
 
     /// <summary>
-    /// White-fills all bubble regions (no text). Returns the inpainted-only image
-    /// for side-by-side comparison with the original and final result.
+    /// Removes text from all bubble regions by flood-filling each bubble interior with white,
+    /// starting from the bubble center and stopping at dark border pixels.
+    /// This preserves the bubble outline regardless of shape (oval, cloud, rectangular).
+    /// Falls back to a 4 px inset rectangle when the center pixel is dark.
     /// </summary>
     public byte[] WhiteFillAll(byte[] imagePng, IReadOnlyList<BubbleTranslation> translations)
     {
@@ -131,13 +133,8 @@ public sealed class TypesettingService
             return imagePng;
         }
 
-        using var canvas = new SKCanvas(bitmap);
-        using var paint  = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
-
         foreach (var t in translations)
-            canvas.DrawRect(t.Box.X, t.Box.Y, t.Box.Width, t.Box.Height, paint);
-
-        canvas.Flush();
+            FillBubbleInterior(bitmap, t.Box);
 
         using var image = SKImage.FromBitmap(bitmap);
         using var data  = image.Encode(SKEncodedImageFormat.Png, 95);
@@ -145,21 +142,83 @@ public sealed class TypesettingService
     }
 
     /// <summary>
-    /// White-fills a single bubble region (no text). Used for per-bubble re-inpaint.
+    /// Removes text from a single bubble region. Used for per-bubble re-inpaint.
     /// </summary>
     public byte[] WhiteFillBubble(byte[] imagePng, BubbleBox box)
     {
         using var bitmap = SKBitmap.Decode(imagePng);
         if (bitmap is null) return imagePng;
 
-        using var canvas = new SKCanvas(bitmap);
-        using var paint  = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
-        canvas.DrawRect(box.X, box.Y, box.Width, box.Height, paint);
-        canvas.Flush();
+        FillBubbleInterior(bitmap, box);
 
         using var image = SKImage.FromBitmap(bitmap);
         using var data  = image.Encode(SKEncodedImageFormat.Png, 95);
         return data.ToArray();
+    }
+
+    // ── Private inpaint helpers ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Flood-fills the interior of a speech bubble with white, starting from the center
+    /// and expanding only into pixels lighter than <paramref name="lightThreshold"/>.
+    /// The dark border pixels stop the fill, so the outline is preserved.
+    /// Falls back to a 4 px inset rectangle when the center is unexpectedly dark.
+    /// </summary>
+    private static void FillBubbleInterior(SKBitmap bitmap, BubbleBox box, byte lightThreshold = 200)
+    {
+        // Flood fill boundaries — stay inside the bounding box and bitmap
+        int minX = Math.Max(0, (int)box.X);
+        int minY = Math.Max(0, (int)box.Y);
+        int maxX = Math.Min(bitmap.Width  - 1, (int)(box.X + box.Width));
+        int maxY = Math.Min(bitmap.Height - 1, (int)(box.Y + box.Height));
+
+        // Skip boxes entirely outside the bitmap (e.g. from Studio edits that moved a box off-page)
+        if (maxX < minX || maxY < minY) return;
+
+        // Clamp center into the clamped region so Enqueue never computes a negative index
+        int cx = Math.Clamp((int)(box.X + box.Width  / 2f), minX, maxX);
+        int cy = Math.Clamp((int)(box.Y + box.Height / 2f), minY, maxY);
+
+        if (!IsPixelLight(bitmap, cx, cy, lightThreshold))
+        {
+            // Fallback: inset rectangle that avoids the border pixels
+            const int Inset = 4;
+            using var canvas = new SKCanvas(bitmap);
+            using var paint  = new SKPaint { Color = SKColors.White, Style = SKPaintStyle.Fill };
+            canvas.DrawRect(minX + Inset, minY + Inset,
+                            maxX - minX - 2 * Inset, maxY - minY - 2 * Inset, paint);
+            return;
+        }
+
+        int regionW = maxX - minX + 1;
+        int regionH = maxY - minY + 1;
+        var visited  = new bool[regionW * regionH];
+        var queue    = new Queue<(int x, int y)>();
+
+        void Enqueue(int x, int y)
+        {
+            int idx = (y - minY) * regionW + (x - minX);
+            if (!visited[idx]) { visited[idx] = true; queue.Enqueue((x, y)); }
+        }
+
+        Enqueue(cx, cy);
+
+        while (queue.Count > 0)
+        {
+            var (x, y) = queue.Dequeue();
+            bitmap.SetPixel(x, y, SKColors.White);
+
+            if (x > minX && IsPixelLight(bitmap, x - 1, y, lightThreshold)) Enqueue(x - 1, y);
+            if (x < maxX && IsPixelLight(bitmap, x + 1, y, lightThreshold)) Enqueue(x + 1, y);
+            if (y > minY && IsPixelLight(bitmap, x, y - 1, lightThreshold)) Enqueue(x, y - 1);
+            if (y < maxY && IsPixelLight(bitmap, x, y + 1, lightThreshold)) Enqueue(x, y + 1);
+        }
+    }
+
+    private static bool IsPixelLight(SKBitmap bitmap, int x, int y, byte threshold)
+    {
+        var c = bitmap.GetPixel(x, y);
+        return c.Red > threshold && c.Green > threshold && c.Blue > threshold;
     }
 
     /// <summary>

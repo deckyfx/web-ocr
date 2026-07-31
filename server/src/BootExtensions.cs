@@ -16,6 +16,7 @@ public sealed class BootBackgroundService(
     TranslateService        translate,
     DictionaryService       dict,
     BubbleDetectionService  bubble,
+    InpaintService          inpaint,
     IServiceScopeFactory    scopeFactory,
     ILogger<BootBackgroundService> logger) : BackgroundService
 {
@@ -87,9 +88,20 @@ public sealed class BootBackgroundService(
 
             if (ms.Inpaint.ShouldDownload)
             {
-                logger.LogInformation("[Boot] Inpaint model downloaded; service init pending (not yet wired).");
-                // TODO: initialise InpaintService when implemented
-                bootState.InpaintReady = true;
+                try
+                {
+                    logger.LogInformation("[Boot] Loading Inpaint (LaMa) model...");
+                    var modelFile = Path.GetFileName(ms.Inpaint.FileList[0]);
+                    var modelPath = Path.Combine(ms.Inpaint.Dir, modelFile);
+                    inpaint.LoadModel(modelPath);
+                    bootState.InpaintReady = true;
+                    logger.LogInformation("[Boot] Inpaint service ready.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex,
+                        "[Boot] Inpaint model failed to load — inpainting will fall back to flood-fill.");
+                }
             }
 
             if (ms.Bubble.ShouldDownload)

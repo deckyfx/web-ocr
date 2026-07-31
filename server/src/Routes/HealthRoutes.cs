@@ -40,6 +40,7 @@ public static class HealthRoutes
                 DataDir:                     config.DataDir,
                 DeeplAvailable:              config.DeeplAvailable,
                 PreferredTranslationEngine:  ms.PreferredTranslationEngine,
+                PreferredInpaintEngine:      ms.PreferredInpaintEngine,
                 Models:                      models));
         });
     }
