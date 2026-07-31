@@ -50,6 +50,11 @@ export interface TranslationBubble {
   isExcluded: boolean;
   fontFamily?: string;
   fontSizeOverride?: number;
+  fontColor?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
+  rotation?: number;
+  textAlign?: "left" | "center" | "right";
   lastEditedAt?: string;
   createdAt: string;
 }

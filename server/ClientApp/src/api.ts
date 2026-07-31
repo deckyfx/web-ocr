@@ -146,6 +146,11 @@ export type UpdateBubbleBody = Partial<{
   isExcluded: boolean;
   fontFamily: string;
   fontSizeOverride: number;
+  fontColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  rotation: number;
+  textAlign: "left" | "center" | "right";
 }>;
 
 export function updateBubble(
@@ -175,6 +180,10 @@ export function redetectJob(id: string): Promise<void> {
 
 export function retranslateJob(id: string): Promise<void> {
   return apiFetch<void>(`/api/portal/jobs/${id}/retranslate`, { method: "POST" });
+}
+
+export function inpaintJob(id: string): Promise<void> {
+  return apiFetch<void>(`/api/portal/jobs/${id}/inpaint`, { method: "POST" });
 }
 
 export function rerenderJob(id: string, padding = 0): Promise<void> {

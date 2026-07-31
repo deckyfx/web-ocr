@@ -29,6 +29,8 @@ type DragResizing = {
   startImgY: number;
   curImgX: number;
   curImgY: number;
+  /** Bubble rotation at drag-start (degrees). Used to inverse-rotate drag deltas. */
+  rotation: number;
 };
 type DragDrawing = {
   kind: "drawing";
@@ -37,7 +39,21 @@ type DragDrawing = {
   curImgX: number;
   curImgY: number;
 };
-type DragState = DragNone | DragMoving | DragResizing | DragDrawing;
+/** Rotation drag: tracks angle in degrees during a rotation handle gesture. */
+type DragRotating = {
+  kind: "rotating";
+  bubbleIndex: number;
+  /** Center of the bounding box in SVG-viewport coordinates (fixed for the gesture). */
+  centerSvgX: number;
+  centerSvgY: number;
+  /** Mouse angle at drag-start (degrees, atan2 in SVG space). */
+  startAngle: number;
+  /** Bubble rotation at drag-start. */
+  initialRotation: number;
+  /** Live rotation updated on each mousemove. */
+  currentRotation: number;
+};
+type DragState = DragNone | DragMoving | DragResizing | DragDrawing | DragRotating;
 
 interface Layout {
   scale: number;
@@ -57,20 +73,15 @@ export interface BubbleCanvasProps {
   bubblePadding?: number;
   /**
    * When true, render the translated text as a floating overlay inside each
-   * non-excluded bubble. Used in the Compose stage so the user can preview
-   * what text will be burned before committing to a re-render.
+   * non-excluded bubble and show the rotation handle on the selected bubble.
    */
   showTextOverlay?: boolean;
   onSelect: (index: number | null) => void;
   onMove: (bubbleIndex: number, dx: number, dy: number) => void;
-  onResize: (
-    bubbleIndex: number,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-  ) => void;
+  onResize: (bubbleIndex: number, x: number, y: number, w: number, h: number) => void;
   onDraw: (x: number, y: number, w: number, h: number) => void;
+  /** Called when the rotation handle is dragged; degrees, not normalised. Stage 3 only. */
+  onRotate?: (bubbleIndex: number, rotation: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,9 +112,25 @@ const HANDLE_CURSORS: Record<ResizeHandle, string> = {
   BR: "se-resize",
 };
 
+/** Pixels above the top-centre of the bounding box where the rotation handle sits. */
+const ROTATION_HANDLE_OFFSET = 24;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Rotate a 2-D delta vector by -rotationDeg so it is expressed in the
+ * bubble's local (rotated) coordinate frame before being fed to applyResize.
+ * When rotation is 0 the delta is returned unchanged.
+ */
+function inverseRotateDelta(dx: number, dy: number, rotationDeg: number): [number, number] {
+  if (rotationDeg === 0) return [dx, dy];
+  const rad = (-rotationDeg * Math.PI) / 180;
+  const cosR = Math.cos(rad);
+  const sinR = Math.sin(rad);
+  return [dx * cosR - dy * sinR, dx * sinR + dy * cosR];
+}
 
 function applyResize(
   handle: ResizeHandle,
@@ -113,40 +140,14 @@ function applyResize(
 ): { x: number; y: number; w: number; h: number } {
   let { x, y, w, h } = orig;
   switch (handle) {
-    case "TL":
-      x += dx;
-      y += dy;
-      w -= dx;
-      h -= dy;
-      break;
-    case "T":
-      y += dy;
-      h -= dy;
-      break;
-    case "TR":
-      y += dy;
-      w += dx;
-      h -= dy;
-      break;
-    case "L":
-      x += dx;
-      w -= dx;
-      break;
-    case "R":
-      w += dx;
-      break;
-    case "BL":
-      x += dx;
-      w -= dx;
-      h += dy;
-      break;
-    case "B":
-      h += dy;
-      break;
-    case "BR":
-      w += dx;
-      h += dy;
-      break;
+    case "TL": x += dx; y += dy; w -= dx; h -= dy; break;
+    case "T":  y += dy; h -= dy; break;
+    case "TR": y += dy; w += dx; h -= dy; break;
+    case "L":  x += dx; w -= dx; break;
+    case "R":  w += dx; break;
+    case "BL": x += dx; w -= dx; h += dy; break;
+    case "B":  h += dy; break;
+    case "BR": w += dx; h += dy; break;
   }
   if (w < 5) w = 5;
   if (h < 5) h = 5;
@@ -161,11 +162,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
   let containerRef!: HTMLDivElement;
   let svgRef!: SVGSVGElement;
 
-  const [layout, setLayout] = createSignal<Layout>({
-    scale: 1,
-    offsetX: 0,
-    offsetY: 0,
-  });
+  const [layout, setLayout] = createSignal<Layout>({ scale: 1, offsetX: 0, offsetY: 0 });
   const [drag, setDrag] = createSignal<DragState>({ kind: "none" });
 
   // ---------------------------------------------------------------------------
@@ -182,9 +179,11 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
     const scale = Math.min(scaleX, scaleY);
     const renderedW = props.imageWidth * scale;
     const renderedH = props.imageHeight * scale;
-    const offsetX = (cW - renderedW) / 2;
-    const offsetY = (cH - renderedH) / 2;
-    setLayout({ scale, offsetX, offsetY });
+    setLayout({
+      scale,
+      offsetX: (cW - renderedW) / 2,
+      offsetY: (cH - renderedH) / 2,
+    });
   }
 
   function toSvg(imgX: number, imgY: number): { x: number; y: number } {
@@ -203,16 +202,16 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
     return toImg(e.clientX - rect.left, e.clientY - rect.top);
   }
 
+  function getMouseSvgPos(e: MouseEvent): { x: number; y: number } {
+    const rect = svgRef.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
   // ---------------------------------------------------------------------------
-  // Drag preview helpers
+  // Bubble rect helpers
   // ---------------------------------------------------------------------------
 
-  function getBubbleRect(bubble: TranslationBubble): {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  } {
+  function getBubbleRect(bubble: TranslationBubble): { x: number; y: number; w: number; h: number } {
     const d = drag();
     if (d.kind === "moving" && d.bubbleIndex === bubble.bubbleIndex) {
       return {
@@ -223,27 +222,33 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
       };
     }
     if (d.kind === "resizing" && d.bubbleIndex === bubble.bubbleIndex) {
-      return applyResize(
-        d.handle,
-        { x: d.origX, y: d.origY, w: d.origW, h: d.origH },
+      const [rdx, rdy] = inverseRotateDelta(
         d.curImgX - d.startImgX,
         d.curImgY - d.startImgY,
+        d.rotation,
       );
+      return applyResize(d.handle, { x: d.origX, y: d.origY, w: d.origW, h: d.origH }, rdx, rdy);
     }
-    return {
-      x: bubble.bubbleX,
-      y: bubble.bubbleY,
-      w: bubble.bubbleW,
-      h: bubble.bubbleH,
-    };
+    return { x: bubble.bubbleX, y: bubble.bubbleY, w: bubble.bubbleW, h: bubble.bubbleH };
   }
 
-  function getDrawPreview(): {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  } | null {
+  function computeSvgRect(bubble: TranslationBubble): { x: number; y: number; w: number; h: number } {
+    const r = getBubbleRect(bubble);
+    const pad = props.bubblePadding ?? 0;
+    const tl = toSvg(r.x + pad, r.y + pad);
+    const br = toSvg(r.x + r.w - pad, r.y + r.h - pad);
+    return { x: tl.x, y: tl.y, w: Math.max(0, br.x - tl.x), h: Math.max(0, br.y - tl.y) };
+  }
+
+  function getBubbleRotation(bubble: TranslationBubble): number {
+    const d = drag();
+    if (d.kind === "rotating" && d.bubbleIndex === bubble.bubbleIndex) {
+      return d.currentRotation;
+    }
+    return bubble.rotation ?? 0;
+  }
+
+  function getDrawPreview(): { x: number; y: number; w: number; h: number } | null {
     const d = drag();
     if (d.kind !== "drawing") return null;
     return {
@@ -255,20 +260,27 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
   }
 
   // ---------------------------------------------------------------------------
-  // Global drag handlers (attached on mousedown, removed on mouseup)
+  // Global drag handlers
   // ---------------------------------------------------------------------------
 
   function onWindowMouseMove(e: MouseEvent): void {
     const d = drag();
     if (d.kind === "none") return;
     e.preventDefault();
-    const pos = getMouseImgPos(e);
-    if (d.kind === "moving") {
-      setDrag({ ...d, curImgX: pos.x, curImgY: pos.y });
-    } else if (d.kind === "resizing") {
-      setDrag({ ...d, curImgX: pos.x, curImgY: pos.y });
-    } else if (d.kind === "drawing") {
-      setDrag({ ...d, curImgX: pos.x, curImgY: pos.y });
+    if (d.kind === "rotating") {
+      const svgPos = getMouseSvgPos(e);
+      const angle =
+        Math.atan2(svgPos.y - d.centerSvgY, svgPos.x - d.centerSvgX) * (180 / Math.PI);
+      setDrag({ ...d, currentRotation: d.initialRotation + (angle - d.startAngle) });
+    } else {
+      const pos = getMouseImgPos(e);
+      if (d.kind === "moving") {
+        setDrag({ ...d, curImgX: pos.x, curImgY: pos.y });
+      } else if (d.kind === "resizing") {
+        setDrag({ ...d, curImgX: pos.x, curImgY: pos.y });
+      } else if (d.kind === "drawing") {
+        setDrag({ ...d, curImgX: pos.x, curImgY: pos.y });
+      }
     }
   }
 
@@ -281,11 +293,16 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
         props.onMove(d.bubbleIndex, dx, dy);
       }
     } else if (d.kind === "resizing") {
+      const [rdx, rdy] = inverseRotateDelta(
+        d.curImgX - d.startImgX,
+        d.curImgY - d.startImgY,
+        d.rotation,
+      );
       const r = applyResize(
         d.handle,
         { x: d.origX, y: d.origY, w: d.origW, h: d.origH },
-        d.curImgX - d.startImgX,
-        d.curImgY - d.startImgY,
+        rdx,
+        rdy,
       );
       props.onResize(d.bubbleIndex, r.x, r.y, r.w, r.h);
     } else if (d.kind === "drawing") {
@@ -298,6 +315,8 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
       } else {
         props.onSelect(null);
       }
+    } else if (d.kind === "rotating") {
+      props.onRotate?.(d.bubbleIndex, d.currentRotation);
     }
     setDrag({ kind: "none" });
     window.removeEventListener("mousemove", onWindowMouseMove);
@@ -319,27 +338,17 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
   // ---------------------------------------------------------------------------
 
   function handleSvgMouseDown(e: MouseEvent): void {
-    // Only fires when clicking the SVG background (bubbles stop propagation)
     e.preventDefault();
     if (!props.drawMode) {
       props.onSelect(null);
       return;
     }
     const pos = getMouseImgPos(e);
-    setDrag({
-      kind: "drawing",
-      startImgX: pos.x,
-      startImgY: pos.y,
-      curImgX: pos.x,
-      curImgY: pos.y,
-    });
+    setDrag({ kind: "drawing", startImgX: pos.x, startImgY: pos.y, curImgX: pos.x, curImgY: pos.y });
     beginDrag();
   }
 
-  function handleBubbleMouseDown(
-    e: MouseEvent,
-    bubble: TranslationBubble,
-  ): void {
+  function handleBubbleMouseDown(e: MouseEvent, bubble: TranslationBubble): void {
     e.preventDefault();
     e.stopPropagation();
     props.onSelect(bubble.bubbleIndex);
@@ -355,11 +364,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
     beginDrag();
   }
 
-  function handleHandleMouseDown(
-    e: MouseEvent,
-    bubble: TranslationBubble,
-    handle: ResizeHandle,
-  ): void {
+  function handleHandleMouseDown(e: MouseEvent, bubble: TranslationBubble, handle: ResizeHandle): void {
     e.preventDefault();
     e.stopPropagation();
     const pos = getMouseImgPos(e);
@@ -375,6 +380,28 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
       startImgY: pos.y,
       curImgX: pos.x,
       curImgY: pos.y,
+      rotation: bubble.rotation ?? 0,
+    });
+    beginDrag();
+  }
+
+  function handleRotateMouseDown(e: MouseEvent, bubble: TranslationBubble): void {
+    e.preventDefault();
+    e.stopPropagation();
+    const sr = computeSvgRect(bubble);
+    const cx = sr.x + sr.w / 2;
+    const cy = sr.y + sr.h / 2;
+    const svgPos = getMouseSvgPos(e);
+    const startAngle =
+      Math.atan2(svgPos.y - cy, svgPos.x - cx) * (180 / Math.PI);
+    setDrag({
+      kind: "rotating",
+      bubbleIndex: bubble.bubbleIndex,
+      centerSvgX: cx,
+      centerSvgY: cy,
+      startAngle,
+      initialRotation: bubble.rotation ?? 0,
+      currentRotation: bubble.rotation ?? 0,
     });
     beginDrag();
   }
@@ -385,12 +412,10 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
 
   onMount(() => {
     computeLayout();
-    // Use ResizeObserver so layout recomputes when the sidebar collapses/expands
     const ro = new ResizeObserver(() => computeLayout());
     ro.observe(containerRef);
     onCleanup(() => {
       ro.disconnect();
-      // safety cleanup if drag was in progress
       window.removeEventListener("mousemove", onWindowMouseMove);
       window.removeEventListener("mouseup", onWindowMouseUp);
     });
@@ -400,11 +425,15 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
   // Render
   // ---------------------------------------------------------------------------
 
+  const svgCursor = () => {
+    const d = drag();
+    if (d.kind === "moving" || d.kind === "rotating") return "grabbing";
+    if (d.kind === "drawing" || props.drawMode) return "crosshair";
+    return "default";
+  };
+
   return (
-    <div
-      ref={containerRef}
-      class="relative overflow-hidden bg-slate-900 w-full h-full select-none"
-    >
+    <div ref={containerRef} class="relative overflow-hidden bg-slate-900 w-full h-full select-none">
       <img
         src={props.imageUrl}
         alt="manga page"
@@ -415,29 +444,19 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
       <svg
         ref={svgRef}
         class="absolute inset-0 w-full h-full"
-        style={{
-          cursor:
-            drag().kind === "moving"
-              ? "grabbing"
-              : drag().kind === "drawing" || props.drawMode
-                ? "crosshair"
-                : "default",
-        }}
+        style={{ cursor: svgCursor() }}
         onMouseDown={handleSvgMouseDown}
       >
         <For each={props.bubbles}>
           {(bubble) => {
-            const rect = () => getBubbleRect(bubble);
-            const svgRect = () => {
-              const r = rect();
-              const pad = props.bubblePadding ?? 0;
-              const tl = toSvg(r.x + pad, r.y + pad);
-              const br = toSvg(r.x + r.w - pad, r.y + r.h - pad);
-              return { x: tl.x, y: tl.y, w: Math.max(0, br.x - tl.x), h: Math.max(0, br.y - tl.y) };
-            };
-            const isSelected = () =>
-              props.selectedIndex === bubble.bubbleIndex;
-            const strokeColor = () => {
+            const svgRect = () => computeSvgRect(bubble);
+            const cx = () => svgRect().x + svgRect().w / 2;
+            const cy = () => svgRect().y + svgRect().h / 2;
+            const rotation = () => getBubbleRotation(bubble);
+
+            const isSelected = () => props.selectedIndex === bubble.bubbleIndex;
+
+            const outlineColor = () => {
               if (bubble.isExcluded) return "#9ca3af";
               if (isSelected()) return "#7c3aed";
               if (bubble.isManuallyAdded) return "#10b981";
@@ -449,8 +468,15 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
               return "rgba(59,130,246,0.05)";
             };
 
+            // SVG transform string — only applied in Stage 3 (showTextOverlay) mode
+            const groupTransform = () =>
+              props.showTextOverlay
+                ? `rotate(${rotation()} ${cx()} ${cy()})`
+                : undefined;
+
             return (
-              <g>
+              // biome-ignore lint/a11y/useKeyWithMouseEvents: SVG canvas element
+              <g transform={groupTransform()}>
                 {/* Main bubble rect */}
                 <rect
                   x={svgRect().x}
@@ -458,12 +484,13 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                   width={svgRect().w}
                   height={svgRect().h}
                   fill={fillColor()}
-                  stroke={strokeColor()}
+                  stroke={outlineColor()}
                   stroke-width={isSelected() ? 3 : 2}
                   style={{ cursor: "grab" }}
                   onMouseDown={(e) => handleBubbleMouseDown(e, bubble)}
                 />
-                {/* Excluded: diagonal strikethrough */}
+
+                {/* Excluded diagonal strikethrough */}
                 <Show when={bubble.isExcluded}>
                   <line
                     x1={svgRect().x}
@@ -475,7 +502,8 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                     style={{ "pointer-events": "none" }}
                   />
                 </Show>
-                {/* Index label — shadow */}
+
+                {/* Index label (shadow) */}
                 <text
                   x={svgRect().x + 4}
                   y={svgRect().y + 13}
@@ -485,7 +513,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                 >
                   {bubble.bubbleIndex}
                 </text>
-                {/* Index label — foreground */}
+                {/* Index label (foreground) */}
                 <text
                   x={svgRect().x + 3}
                   y={svgRect().y + 12}
@@ -495,34 +523,87 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                 >
                   {bubble.bubbleIndex}
                 </text>
-                {/* Resize handles (only when selected) */}
+
+                {/* ── Resize handles (when selected) ── */}
                 <Show when={isSelected()}>
                   <For each={HANDLES}>
                     {(handle) => {
                       const [fx, fy] = HANDLE_OFFSETS[handle];
-                      const hSvgPos = () => {
-                        const sr = svgRect();
-                        return { x: sr.x + fx * sr.w, y: sr.y + fy * sr.h };
-                      };
+                      const hx = () => svgRect().x + fx * svgRect().w;
+                      const hy = () => svgRect().y + fy * svgRect().h;
                       return (
                         <rect
-                          x={hSvgPos().x - 4}
-                          y={hSvgPos().y - 4}
+                          x={hx() - 4}
+                          y={hy() - 4}
                           width={8}
                           height={8}
                           fill="white"
                           stroke="#7c3aed"
                           stroke-width="1.5"
                           style={{ cursor: HANDLE_CURSORS[handle] }}
-                          onMouseDown={(e) =>
-                            handleHandleMouseDown(e, bubble, handle)
-                          }
+                          onMouseDown={(e) => handleHandleMouseDown(e, bubble, handle)}
                         />
                       );
                     }}
                   </For>
                 </Show>
-                {/* Compose text overlay — transparent background, glyph only */}
+
+                {/* ── Rotation handle (Stage 3, selected only) ── */}
+                <Show when={props.showTextOverlay && isSelected()}>
+                  {/* Stem line from top-centre up to handle */}
+                  <line
+                    x1={cx()}
+                    y1={svgRect().y}
+                    x2={cx()}
+                    y2={svgRect().y - ROTATION_HANDLE_OFFSET + 5}
+                    stroke="#7c3aed"
+                    stroke-width="1.5"
+                    stroke-dasharray="3,2"
+                    style={{ "pointer-events": "none" }}
+                  />
+                  {/* Outer shadow circle */}
+                  <circle
+                    cx={cx()}
+                    cy={svgRect().y - ROTATION_HANDLE_OFFSET}
+                    r={6}
+                    fill="rgba(0,0,0,0.18)"
+                    style={{ "pointer-events": "none" }}
+                  />
+                  {/* Handle circle */}
+                  <circle
+                    cx={cx()}
+                    cy={svgRect().y - ROTATION_HANDLE_OFFSET}
+                    r={5}
+                    fill="white"
+                    stroke="#7c3aed"
+                    stroke-width="1.5"
+                    style={{ cursor: "grab" }}
+                    onMouseDown={(e) => handleRotateMouseDown(e, bubble)}
+                  />
+                  {/* Rotation angle badge (shown only during active rotation drag) */}
+                  <Show when={drag().kind === "rotating" && (drag() as DragRotating).bubbleIndex === bubble.bubbleIndex}>
+                    <rect
+                      x={cx() + 8}
+                      y={svgRect().y - ROTATION_HANDLE_OFFSET - 8}
+                      width={38}
+                      height={16}
+                      rx={3}
+                      fill="rgba(124,58,237,0.9)"
+                    />
+                    <text
+                      x={cx() + 27}
+                      y={svgRect().y - ROTATION_HANDLE_OFFSET + 4}
+                      font-size="10"
+                      fill="white"
+                      text-anchor="middle"
+                      style={{ "pointer-events": "none", "user-select": "none" }}
+                    >
+                      {Math.round(rotation())}°
+                    </text>
+                  </Show>
+                </Show>
+
+                {/* ── Text overlay (Stage 3 preview) ── */}
                 <Show when={props.showTextOverlay && !bubble.isExcluded && !!bubble.translatedText}>
                   <foreignObject
                     x={svgRect().x}
@@ -538,21 +619,35 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                         display: "flex",
                         "align-items": "center",
                         "justify-content": "center",
-                        "font-family": bubble.fontFamily ?? "sans-serif",
-                        "font-size": bubble.fontSizeOverride
-                          ? `${bubble.fontSizeOverride * layout().scale}px`
-                          : `${Math.max(8, Math.min(14, svgRect().h / 5))}px`,
-                        "font-weight": "bold",
-                        color: "#1a1a1a",
-                        "text-align": "center",
-                        padding: "4px",
                         overflow: "hidden",
-                        "word-break": "break-word",
-                        "line-height": "1.25",
                         "box-sizing": "border-box",
+                        padding: "3px",
+                        "pointer-events": "none",
                       }}
                     >
-                      {bubble.translatedText}
+                      <span
+                        style={{
+                          "font-family": bubble.fontFamily || "sans-serif",
+                          "font-size": bubble.fontSizeOverride
+                            ? `${bubble.fontSizeOverride * layout().scale}px`
+                            : `${Math.max(8, Math.min(14, svgRect().h / 5))}px`,
+                          "font-weight": "bold",
+                          color: bubble.fontColor ?? "#1a1a1a",
+                          "text-align": (bubble.textAlign ?? "center") as "left" | "center" | "right",
+                          "-webkit-text-stroke":
+                            bubble.strokeWidth && bubble.strokeWidth > 0
+                              ? `${bubble.strokeWidth * layout().scale}px ${bubble.strokeColor ?? "#ffffff"}`
+                              : undefined,
+                          "word-break": "break-word",
+                          "white-space": "pre-wrap",
+                          "line-height": "1.25",
+                          width: "100%",
+                          display: "block",
+                          "pointer-events": "none",
+                        }}
+                      >
+                        {bubble.translatedText}
+                      </span>
                     </div>
                   </foreignObject>
                 </Show>
@@ -561,7 +656,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
           }}
         </For>
 
-        {/* Draw preview rect */}
+        {/* Draw-mode preview rect */}
         <Show when={getDrawPreview()}>
           {(dr) => {
             const svgDr = () => {

@@ -9,6 +9,8 @@ import type {
   FetchImageMsg,
   JobResultReadyMsg,
   JobResultErrorMsg,
+  ImageUpdatedRelayMsg,
+  ImageUpdatedMsg,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 
@@ -82,6 +84,8 @@ chrome.runtime.onMessage.addListener((
     void handleLocalDone(msg.requestId, msg.text, msg.elapsed_ms, tabId);
   } else if (msg.type === "explain-request" && tabId !== undefined) {
     void handleExplain(msg.text, tabId);
+  } else if ((msg as ImageUpdatedRelayMsg).type === "image-updated-relay") {
+    void handleImageUpdated(msg as unknown as ImageUpdatedRelayMsg);
   }
   return false;
 });
@@ -348,6 +352,27 @@ async function handleExplain(text: string, tabId: number): Promise<void> {
   } catch (e) {
     sendToTab(tabId, { type: "explain-error", message: errMsg(e) });
   }
+}
+
+// ── Image updated broadcast ────────────────────────────────────────────────────
+
+/**
+ * Broadcast an image-updated notification to all tabs that have the content
+ * script loaded. Called when the Studio page emits a web-ocr:image-updated
+ * postMessage after burning text in Stage 3.
+ */
+async function handleImageUpdated(relay: ImageUpdatedRelayMsg): Promise<void> {
+  const msg: ImageUpdatedMsg = {
+    type: "image-updated",
+    jobId: relay.jobId,
+    resultUrl: relay.resultUrl,
+  };
+  const tabs = await chrome.tabs.query({});
+  await Promise.allSettled(
+    tabs
+      .filter((t) => t.id !== undefined)
+      .map((t) => chrome.tabs.sendMessage(t.id!, msg).catch(() => { /* tab may not have content script */ }))
+  );
 }
 
 // ── DeepL client-side translation ─────────────────────────────────────────────

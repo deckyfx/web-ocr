@@ -263,7 +263,8 @@ public sealed class PageTranslationService(
 
         var translations = bubbleLogs.Select(l => new BubbleTranslation(
             new BubbleBox(l.BubbleX, l.BubbleY, l.BubbleW, l.BubbleH, l.Confidence),
-            l.SourceText, l.TranslatedText, l.FontFamily, l.FontSizeOverride)).ToList();
+            l.SourceText, l.TranslatedText, l.FontFamily, l.FontSizeOverride,
+            l.FontColor, l.StrokeColor, l.StrokeWidth, l.Rotation, l.TextAlign)).ToList();
 
         // Fetch all bubble boxes for inpainting (includes bubbles without translations)
         var allBubbleLogs = db.PageTranslationLogs
@@ -321,6 +322,51 @@ public sealed class PageTranslationService(
             if (job is not null)
             {
                 job.ResultImagePath = Path.Combine("jobs", jobId, "result.png");
+                await db.SaveChangesAsync(ct);
+            }
+        }
+        finally { imgLock.Release(); }
+    }
+
+    /// <summary>
+    /// White-fills all non-excluded bubble regions in the original image and saves the result as
+    /// inpainted.png. Does NOT render any translated text — it is a pure inpaint-only operation.
+    /// Use this when the user clicks "Inpaint All" in Stage 1 of the Studio without re-rendering.
+    /// </summary>
+    public async Task InpaintOnlyAsync(string jobId, CancellationToken ct = default)
+    {
+        var originalPath = Path.Combine(config.JobsDir, jobId, "original.png");
+        if (!File.Exists(originalPath)) throw new FileNotFoundException("Original image not found for job", originalPath);
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var allBubbleLogs = await db.PageTranslationLogs
+            .Where(l => l.JobId == jobId && !l.IsExcluded)
+            .OrderBy(l => l.BubbleIndex)
+            .ToListAsync(ct);
+
+        var allBubbleFills = allBubbleLogs
+            .Select(l => new BubbleTranslation(
+                new BubbleBox(l.BubbleX, l.BubbleY, l.BubbleW, l.BubbleH, l.Confidence), "", ""))
+            .ToList();
+
+        var imgLock = GetImageLock(jobId);
+        await imgLock.WaitAsync(ct);
+        try
+        {
+            var originalPng   = await File.ReadAllBytesAsync(originalPath, ct);
+            var inpaintedPng  = allBubbleFills.Count > 0
+                ? await Task.Run(() => typesetter.WhiteFillAll(originalPng, allBubbleFills), ct)
+                : originalPng;
+
+            var inpaintedPath = Path.Combine(config.JobsDir, jobId, "inpainted.png");
+            await File.WriteAllBytesAsync(inpaintedPath, inpaintedPng, ct);
+
+            var job = await db.PageTranslationJobs.FindAsync(jobId);
+            if (job is not null)
+            {
+                job.InpaintedImagePath = Path.Combine("jobs", jobId, "inpainted.png");
                 await db.SaveChangesAsync(ct);
             }
         }
@@ -450,7 +496,8 @@ public sealed class PageTranslationService(
 
         var t = new BubbleTranslation(
             new BubbleBox(bubble.BubbleX, bubble.BubbleY, bubble.BubbleW, bubble.BubbleH, bubble.Confidence),
-            bubble.SourceText, bubble.TranslatedText, bubble.FontFamily, bubble.FontSizeOverride);
+            bubble.SourceText, bubble.TranslatedText, bubble.FontFamily, bubble.FontSizeOverride,
+            bubble.FontColor, bubble.StrokeColor, bubble.StrokeWidth, bubble.Rotation, bubble.TextAlign);
 
         var imgLock = GetImageLock(jobId);
         await imgLock.WaitAsync(ct);

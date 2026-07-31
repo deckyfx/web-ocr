@@ -8,6 +8,7 @@ import type {
   JishoEntry,
   OcrResultMsg,
   JobResultReadyMsg,
+  ImageUpdatedRelayMsg,
   ToEngineMsg,
   FromEngineMsg,
   FetchImageMsg,
@@ -55,6 +56,19 @@ function init(): void {
     else if (msg.type === "explain-result")   showExplain(msg.tokens, msg.definitions, msg.mode);
     else if (msg.type === "explain-error")    showExplainError(msg.message);
     else if (msg.type === "job-result-ready") appendJobImage(msg.resultImageDataUrl);
+    else if (msg.type === "image-updated") replacePageImages(msg.jobId, msg.resultUrl);
+  });
+
+  // Studio page → extension bridge: relay image-updated events from the same origin
+  window.addEventListener("message", (e: MessageEvent<{ type?: string; jobId?: string; resultUrl?: string }>) => {
+    if (e.data?.type === "web-ocr:image-updated" && e.origin === window.location.origin) {
+      const relay: ImageUpdatedRelayMsg = {
+        type: "image-updated-relay",
+        jobId: e.data.jobId ?? "",
+        resultUrl: e.data.resultUrl ?? "",
+      };
+      chrome.runtime.sendMessage(relay as unknown as FromContentMsg).catch(console.error);
+    }
   });
 
   // Engine iframe messages (postMessage from engine.html)
@@ -320,6 +334,20 @@ function appendJobImage(resultImageDataUrl: string): void {
     <img class="socr-result-image" src="${escAttr(resultImageDataUrl)}" alt="Translated page" />
   `;
   inner.appendChild(section);
+}
+
+/** Replace all <img> tags on the page whose src matches the server result URL for this job. */
+function replacePageImages(jobId: string, resultUrl: string): void {
+  if (!resultUrl) return;
+  const imgs = document.querySelectorAll<HTMLImageElement>("img");
+  imgs.forEach((img) => {
+    if (img.dataset.socrJobId === jobId) {
+      // Bust cache by appending timestamp
+      img.src = resultUrl.includes("?")
+        ? `${resultUrl}&t=${Date.now()}`
+        : `${resultUrl}?t=${Date.now()}`;
+    }
+  });
 }
 
 function showError(message: string): void {
