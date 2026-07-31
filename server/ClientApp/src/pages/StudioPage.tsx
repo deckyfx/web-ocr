@@ -147,13 +147,15 @@ export function StudioPage() {
   // ---------------------------------------------------------------------------
 
   function handleSelectStage1(idx: number | null): void {
-    const next = idx === selectedIndex() ? null : idx;
+    const alreadySelected = idx !== null && idx === selectedIndex() && panelContext() === "stage1";
+    const next = alreadySelected ? null : idx;
     setSelectedIndex(next);
     setPanelContext(next !== null ? "stage1" : null);
   }
 
   function handleSelectStage3(idx: number | null): void {
-    const next = idx === selectedIndex() ? null : idx;
+    const alreadySelected = idx !== null && idx === selectedIndex() && panelContext() === "stage3";
+    const next = alreadySelected ? null : idx;
     setSelectedIndex(next);
     setPanelContext(next !== null ? "stage3" : null);
   }
@@ -576,7 +578,7 @@ export function StudioPage() {
         <Show when={stage1Active()}>
           <button
             onClick={handleRedetect}
-            disabled={isRedetecting() || isInpainting()}
+            disabled={isRedetecting() || isInpainting() || isAutoTexts() || isBurning()}
             class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             title="Re-detect speech bubbles"
           >
@@ -588,7 +590,7 @@ export function StudioPage() {
 
           <button
             onClick={handleInpaint}
-            disabled={isInpainting() || isRedetecting()}
+            disabled={isInpainting() || isRedetecting() || isAutoTexts() || isBurning()}
             class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             title="White-fill all detected bubbles"
           >
@@ -608,7 +610,7 @@ export function StudioPage() {
         <Show when={stage3Active()}>
           <button
             onClick={handleAutoTexts}
-            disabled={isAutoTexts() || isBurning()}
+            disabled={isAutoTexts() || isBurning() || isRedetecting() || isInpainting()}
             class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             title="Re-run detect + translate to regenerate text overlays"
           >
@@ -620,7 +622,7 @@ export function StudioPage() {
 
           <button
             onClick={handleBurnTexts}
-            disabled={isBurning() || isAutoTexts()}
+            disabled={isBurning() || isAutoTexts() || isRedetecting() || isInpainting()}
             class="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
             title="Burn translated text into the result image"
           >

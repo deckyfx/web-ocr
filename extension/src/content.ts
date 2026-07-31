@@ -337,21 +337,15 @@ function appendJobImage(resultImageDataUrl: string): void {
 }
 
 /** Replace all <img> tags on the page whose src matches the server result URL for this job. */
-function replacePageImages(_jobId: string, resultUrl: string): void {
+function replacePageImages(jobId: string, resultUrl: string): void {
   if (!resultUrl) return;
   const imgs = document.querySelectorAll<HTMLImageElement>("img");
   imgs.forEach((img) => {
-    try {
-      const src = new URL(img.src, window.location.href);
-      // Match images served by the same server whose path ends with the result image
-      if (src.pathname.includes("/result") || img.dataset.socrJobId === _jobId) {
-        // Bust cache by appending timestamp
-        img.src = resultUrl.includes("?")
-          ? `${resultUrl}&t=${Date.now()}`
-          : `${resultUrl}?t=${Date.now()}`;
-      }
-    } catch {
-      // ignore cross-origin URL parse errors
+    if (img.dataset.socrJobId === jobId) {
+      // Bust cache by appending timestamp
+      img.src = resultUrl.includes("?")
+        ? `${resultUrl}&t=${Date.now()}`
+        : `${resultUrl}?t=${Date.now()}`;
     }
   });
 }

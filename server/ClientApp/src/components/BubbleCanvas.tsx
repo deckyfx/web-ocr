@@ -29,6 +29,8 @@ type DragResizing = {
   startImgY: number;
   curImgX: number;
   curImgY: number;
+  /** Bubble rotation at drag-start (degrees). Used to inverse-rotate drag deltas. */
+  rotation: number;
 };
 type DragDrawing = {
   kind: "drawing";
@@ -116,6 +118,19 @@ const ROTATION_HANDLE_OFFSET = 24;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Rotate a 2-D delta vector by -rotationDeg so it is expressed in the
+ * bubble's local (rotated) coordinate frame before being fed to applyResize.
+ * When rotation is 0 the delta is returned unchanged.
+ */
+function inverseRotateDelta(dx: number, dy: number, rotationDeg: number): [number, number] {
+  if (rotationDeg === 0) return [dx, dy];
+  const rad = (-rotationDeg * Math.PI) / 180;
+  const cosR = Math.cos(rad);
+  const sinR = Math.sin(rad);
+  return [dx * cosR - dy * sinR, dx * sinR + dy * cosR];
+}
 
 function applyResize(
   handle: ResizeHandle,
@@ -207,12 +222,12 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
       };
     }
     if (d.kind === "resizing" && d.bubbleIndex === bubble.bubbleIndex) {
-      return applyResize(
-        d.handle,
-        { x: d.origX, y: d.origY, w: d.origW, h: d.origH },
+      const [rdx, rdy] = inverseRotateDelta(
         d.curImgX - d.startImgX,
         d.curImgY - d.startImgY,
+        d.rotation,
       );
+      return applyResize(d.handle, { x: d.origX, y: d.origY, w: d.origW, h: d.origH }, rdx, rdy);
     }
     return { x: bubble.bubbleX, y: bubble.bubbleY, w: bubble.bubbleW, h: bubble.bubbleH };
   }
@@ -278,11 +293,16 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
         props.onMove(d.bubbleIndex, dx, dy);
       }
     } else if (d.kind === "resizing") {
+      const [rdx, rdy] = inverseRotateDelta(
+        d.curImgX - d.startImgX,
+        d.curImgY - d.startImgY,
+        d.rotation,
+      );
       const r = applyResize(
         d.handle,
         { x: d.origX, y: d.origY, w: d.origW, h: d.origH },
-        d.curImgX - d.startImgX,
-        d.curImgY - d.startImgY,
+        rdx,
+        rdy,
       );
       props.onResize(d.bubbleIndex, r.x, r.y, r.w, r.h);
     } else if (d.kind === "drawing") {
@@ -360,6 +380,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
       startImgY: pos.y,
       curImgX: pos.x,
       curImgY: pos.y,
+      rotation: bubble.rotation ?? 0,
     });
     beginDrag();
   }

@@ -178,7 +178,8 @@ public sealed class TypesettingService
                 Math.Max(1, t.Box.Height - 2 * padding),
                 t.Box.Confidence)
             : t.Box;
-        RenderTextInBubble(canvas, box, t.TranslatedText, t.FontFamily, t.FontSizeOverride);
+        RenderTextInBubble(canvas, box, t.TranslatedText, t.FontFamily, t.FontSizeOverride,
+            whiteFill: true, t.FontColor, t.StrokeColor, t.StrokeWidth, t.Rotation, t.TextAlign);
         canvas.Flush();
 
         using var image = SKImage.FromBitmap(bitmap);
@@ -240,11 +241,14 @@ public sealed class TypesettingService
         // Parse fill color (default #1a1a1a)
         var fillColor = ParseHexColor(fontColor) ?? new SKColor(26, 26, 26);
 
-        // Clip to the bubble bounds and optionally rotate around the bubble center
+        // Clip to the bubble bounds and optionally rotate around the bubble center.
+        // When rotation is applied, skip the axis-aligned clip — the rotated text
+        // extends outside the original bounding box and would be chopped off.
         canvas.Save();
-        canvas.ClipRect(new SKRect(box.X, box.Y, box.X + box.Width, box.Y + box.Height));
         if (rotation is not null and not 0f)
             canvas.RotateDegrees(rotation.Value, centerX, centerY);
+        else
+            canvas.ClipRect(new SKRect(box.X, box.Y, box.X + box.Width, box.Y + box.Height));
 
         // Draw stroke layer first (if requested)
         var sw = strokeWidth ?? 0;
