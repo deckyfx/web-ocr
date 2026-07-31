@@ -8,12 +8,22 @@ namespace WebOcrServer;
 /// <param name="TranslatedText">Translated text (English).</param>
 /// <param name="FontFamily">Optional font family override (null = default sans-serif).</param>
 /// <param name="FontSizeOverride">Optional fixed font size override (null or 0 = auto-fit).</param>
+/// <param name="FontColor">CSS hex fill color e.g. "#1a1a1a" (null = #1a1a1a).</param>
+/// <param name="StrokeColor">CSS hex stroke/outline color (null = no stroke).</param>
+/// <param name="StrokeWidth">Stroke width in pixels (null = 0).</param>
+/// <param name="Rotation">Rotation in degrees around bubble center (null = 0).</param>
+/// <param name="TextAlign">Text alignment: "left", "center", or "right" (null = center).</param>
 public record BubbleTranslation(
     BubbleBox Box,
     string    SourceText,
     string    TranslatedText,
     string?   FontFamily       = null,
-    int?      FontSizeOverride = null);
+    int?      FontSizeOverride = null,
+    string?   FontColor        = null,
+    string?   StrokeColor      = null,
+    int?      StrokeWidth      = null,
+    float?    Rotation         = null,
+    string?   TextAlign        = null);
 
 /// <summary>
 /// Renders translated text into speech-bubble regions of an image using SkiaSharp.
@@ -56,7 +66,8 @@ public sealed class TypesettingService
                     Math.Max(1, t.Box.Height - 2 * padding),
                     t.Box.Confidence)
                 : t.Box;
-            RenderTextInBubble(canvas, box, t.TranslatedText, t.FontFamily, t.FontSizeOverride);
+            RenderTextInBubble(canvas, box, t.TranslatedText, t.FontFamily, t.FontSizeOverride,
+                whiteFill: true, t.FontColor, t.StrokeColor, t.StrokeWidth, t.Rotation, t.TextAlign);
         }
 
         canvas.Flush();
@@ -94,7 +105,8 @@ public sealed class TypesettingService
                     Math.Max(1, t.Box.Height - 2 * padding),
                     t.Box.Confidence)
                 : t.Box;
-            RenderTextInBubble(canvas, box, t.TranslatedText, t.FontFamily, t.FontSizeOverride, whiteFill: false);
+            RenderTextInBubble(canvas, box, t.TranslatedText, t.FontFamily, t.FontSizeOverride,
+                whiteFill: false, t.FontColor, t.StrokeColor, t.StrokeWidth, t.Rotation, t.TextAlign);
         }
 
         canvas.Flush();
@@ -179,10 +191,15 @@ public sealed class TypesettingService
     private static void RenderTextInBubble(
         SKCanvas canvas,
         BubbleBox box,
-        string text,
+        string  text,
         string? fontFamily       = null,
         int?    fontSizeOverride = null,
-        bool    whiteFill        = true)
+        bool    whiteFill        = true,
+        string? fontColor        = null,
+        string? strokeColor      = null,
+        int?    strokeWidth      = null,
+        float?  rotation         = null,
+        string? textAlign        = null)
     {
         // Target area = 85 % of the bubble so text has some margin
         float targetW = box.Width  * 0.85f;
@@ -220,25 +237,73 @@ public sealed class TypesettingService
         float totalH = lines.Count * lineH;
         float startY = centerY - totalH / 2f + fontSize; // baseline of first line
 
-        using var textPaint = new SKPaint
-        {
-            Color       = new SKColor(26, 26, 26),
-            IsAntialias = true,
-        };
+        // Parse fill color (default #1a1a1a)
+        var fillColor = ParseHexColor(fontColor) ?? new SKColor(26, 26, 26);
 
-        // Clip to the bubble bounds so text can never overflow into adjacent bubbles
+        // Clip to the bubble bounds and optionally rotate around the bubble center
         canvas.Save();
         canvas.ClipRect(new SKRect(box.X, box.Y, box.X + box.Width, box.Y + box.Height));
+        if (rotation is not null and not 0f)
+            canvas.RotateDegrees(rotation.Value, centerX, centerY);
 
+        // Draw stroke layer first (if requested)
+        var sw = strokeWidth ?? 0;
+        if (sw > 0 && !string.IsNullOrEmpty(strokeColor))
+        {
+            var sc = ParseHexColor(strokeColor);
+            if (sc.HasValue)
+            {
+                using var strokePaint = new SKPaint
+                {
+                    Color       = sc.Value,
+                    Style       = SKPaintStyle.Stroke,
+                    StrokeWidth = sw,
+                    IsAntialias = true,
+                    StrokeJoin  = SKStrokeJoin.Round,
+                };
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    float x = LineX(lines[i], font, centerX, targetW, textAlign);
+                    float y = startY + i * lineH;
+                    canvas.DrawText(lines[i], x, y, font, strokePaint);
+                }
+            }
+        }
+
+        // Draw fill layer
+        using var textPaint = new SKPaint { Color = fillColor, IsAntialias = true };
         for (int i = 0; i < lines.Count; i++)
         {
-            float textW = font.MeasureText(lines[i]);
-            float x = centerX - textW / 2f;
+            float x = LineX(lines[i], font, centerX, targetW, textAlign);
             float y = startY + i * lineH;
             canvas.DrawText(lines[i], x, y, font, textPaint);
         }
 
         canvas.Restore();
+    }
+
+    /// <summary>Computes the X baseline for a line given alignment.</summary>
+    private static float LineX(string line, SKFont font, float centerX, float targetW, string? textAlign)
+    {
+        float textW = font.MeasureText(line);
+        return (textAlign ?? "center") switch
+        {
+            "left"  => centerX - targetW / 2f,
+            "right" => centerX + targetW / 2f - textW,
+            _       => centerX - textW / 2f,   // center (default)
+        };
+    }
+
+    /// <summary>Parses a CSS hex color string (#rgb, #rrggbb) into an SKColor. Returns null on failure.</summary>
+    private static SKColor? ParseHexColor(string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex)) return null;
+        hex = hex.TrimStart('#');
+        if (hex.Length == 3)
+            hex = string.Concat(hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]);
+        if (hex.Length != 6) return null;
+        if (!uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var rgb)) return null;
+        return new SKColor((byte)(rgb >> 16), (byte)(rgb >> 8 & 0xFF), (byte)(rgb & 0xFF));
     }
 
     // ── Font-size search ──────────────────────────────────────────────────────

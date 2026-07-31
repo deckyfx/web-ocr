@@ -80,6 +80,8 @@ export interface ExplainErrorMsg    { type: "explain-error"; message: string }
 export interface StartImageModeMsg  { type: "start-image-mode" }
 export interface JobResultReadyMsg  { type: "job-result-ready"; jobId: string; resultImageDataUrl: string }
 export interface JobResultErrorMsg  { type: "job-result-error"; jobId: string; reason: "timeout" | "server-error" | "network-error" }
+/** Sent to content tabs when Studio burns text and the result image is updated. */
+export interface ImageUpdatedMsg    { type: "image-updated"; jobId: string; resultUrl: string }
 
 export type ToContentMsg =
   | StartSelectionMsg
@@ -90,14 +92,17 @@ export type ToContentMsg =
   | ExplainErrorMsg
   | StartImageModeMsg
   | JobResultReadyMsg
-  | JobResultErrorMsg;
+  | JobResultErrorMsg
+  | ImageUpdatedMsg;
 
 // ── Messages: content → background ───────────────────────────────────────────
 
-export interface SelectionCompleteMsg { type: "selection-complete"; rect: SelectionRect }
+export interface SelectionCompleteMsg  { type: "selection-complete"; rect: SelectionRect }
 /** Tesseract finished; background should do translation and send ocr-result back */
-export interface OcrLocalDoneMsg      { type: "ocr-local-done"; requestId: string; text: string; elapsed_ms: number }
-export interface ExplainRequestMsg    { type: "explain-request"; text: string }
+export interface OcrLocalDoneMsg       { type: "ocr-local-done"; requestId: string; text: string; elapsed_ms: number }
+export interface ExplainRequestMsg     { type: "explain-request"; text: string }
+/** Relays a web-ocr:image-updated postMessage from the Studio page to background. */
+export interface ImageUpdatedRelayMsg  { type: "image-updated-relay"; jobId: string; resultUrl: string }
 
 // ── Messages: popup → background ─────────────────────────────────────────────
 
@@ -108,6 +113,7 @@ export type FromContentMsg =
   | SelectionCompleteMsg
   | OcrLocalDoneMsg
   | ExplainRequestMsg
+  | ImageUpdatedRelayMsg
   | PopupModeMsg
   | FetchImageMsg;
 

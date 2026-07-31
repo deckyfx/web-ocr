@@ -1,13 +1,20 @@
-import { createResource, createSignal, Show, For } from "solid-js";
+import { createResource, createSignal, createMemo, Show, For } from "solid-js";
 import type { JSX } from "solid-js";
 import { useParams, useNavigate } from "@solidjs/router";
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Flame,
   ImageOff,
+  PaintBucket,
+  PenLine,
+  Plus,
   RefreshCw,
   ScanText,
   Sparkles,
   Trash2,
+  Type,
 } from "lucide-solid";
 import {
   addBubble,
@@ -15,6 +22,7 @@ import {
   deleteJob,
   getJob,
   getJobBubbles,
+  inpaintJob,
   jobInpaintedUrl,
   jobOriginalUrl,
   jobResultUrl,
@@ -27,10 +35,13 @@ import {
   retranslateJob,
   updateBubble,
 } from "../api";
+import type { UpdateBubbleBody } from "../api";
 import { BubbleCanvas } from "../components/BubbleCanvas";
 import { BubbleList } from "../components/BubbleList";
 import { BubbleEditor } from "../components/BubbleEditor";
 import type { BubbleUpdatePatch } from "../components/BubbleEditor";
+import { TextStyleEditor } from "../components/TextStyleEditor";
+import type { TextStylePatch } from "../components/TextStyleEditor";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusBadge } from "./JobsListPage";
 import type { PageTranslationJob, TranslationBubble } from "../types";
@@ -39,8 +50,6 @@ import type { PageTranslationJob, TranslationBubble } from "../types";
 // Stage type
 // ---------------------------------------------------------------------------
 
-/** Pipeline stage identifier. Clicking stage buttons in the toolbar selects
- *  up to 2 at a time; when 2 are active they display side-by-side. */
 type Stage = "original" | "inpainted" | "compose" | "result";
 
 const STAGE_LABELS: Record<Stage, string> = {
@@ -51,6 +60,14 @@ const STAGE_LABELS: Record<Stage, string> = {
 };
 
 const ALL_STAGES: Stage[] = ["original", "inpainted", "compose", "result"];
+
+/** Lower index = earlier in the pipeline → renders on the left. */
+const STAGE_ORDER: Record<Stage, number> = {
+  original: 0, inpainted: 1, compose: 2, result: 3,
+};
+
+// Panel context determines which right-panel editor is shown
+type PanelContext = "stage1" | "stage3" | null;
 
 // ---------------------------------------------------------------------------
 // Page
@@ -69,30 +86,44 @@ export function StudioPage() {
 
   // UI state
   const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
-  // Stage picker: up to 2 active stages shown side-by-side
-  const [activeStages, setActiveStages] = createSignal<Stage[]>(["result"]);
+  const [activeStages, setActiveStages] = createSignal<Stage[]>(["original"]);
+  const [panelContext, setPanelContext] = createSignal<PanelContext>(null);
+  const [leftCollapsed, setLeftCollapsed] = createSignal(false);
+  const [rightCollapsed, setRightCollapsed] = createSignal(false);
+
+  // Job action states
   const [isRedetecting, setIsRedetecting] = createSignal(false);
-  const [isRetranslating, setIsRetranslating] = createSignal(false);
-  const [isRerendering, setIsRerendering] = createSignal(false);
+  const [isInpainting, setIsInpainting] = createSignal(false);
+  const [isAutoTexts, setIsAutoTexts] = createSignal(false);
+  const [isBurning, setIsBurning] = createSignal(false);
+
   const [isDrawMode, setIsDrawMode] = createSignal(false);
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isDeleting, setIsDeleting] = createSignal(false);
+
   const storedPadding = parseInt(localStorage.getItem("studio-bubble-padding") ?? "0", 10);
   const [bubblePadding, setBubblePadding] = createSignal<number>(
     Number.isNaN(storedPadding) ? 0 : storedPadding,
   );
-  // Incremented after reinpaint/repatch so image URLs cache-bust
   const [imageVersion, setImageVersion] = createSignal(0);
 
   // Derived
   const bubbleList = () => bubbles() ?? [];
-  const selectedBubble = () => {
+  const selectedBubble = (): TranslationBubble | null => {
     const idx = selectedIndex();
     return idx !== null
       ? (bubbleList().find((b) => b.bubbleIndex === idx) ?? null)
       : null;
   };
+
+  // Stages sorted by pipeline position so left panel always shows earlier stage
+  const sortedActiveStages = createMemo(() =>
+    [...activeStages()].sort((a, b) => STAGE_ORDER[a] - STAGE_ORDER[b]),
+  );
+
+  const stage1Active = () => activeStages().includes("original");
+  const stage3Active = () => activeStages().includes("compose");
 
   // ---------------------------------------------------------------------------
   // Stage toggle — max 2 active; clicking a third replaces the oldest
@@ -101,12 +132,10 @@ export function StudioPage() {
   function toggleStage(s: Stage): void {
     setActiveStages((prev) => {
       if (prev.includes(s)) {
-        // Deselect — always keep at least 1
         const next = prev.filter((x) => x !== s);
         return next.length > 0 ? next : prev;
       }
       if (prev.length >= 2) {
-        // Replace oldest (first in array)
         return [prev[1]!, s];
       }
       return [...prev, s];
@@ -114,18 +143,26 @@ export function StudioPage() {
   }
 
   // ---------------------------------------------------------------------------
-  // Action handlers
+  // Selection handlers — update selectedIndex and panelContext together
   // ---------------------------------------------------------------------------
 
-  function handleSelect(idx: number | null): void {
-    setSelectedIndex(idx === selectedIndex() ? null : idx);
+  function handleSelectStage1(idx: number | null): void {
+    const next = idx === selectedIndex() ? null : idx;
+    setSelectedIndex(next);
+    setPanelContext(next !== null ? "stage1" : null);
   }
 
-  async function handleMove(
-    bubbleIndex: number,
-    dx: number,
-    dy: number,
-  ): Promise<void> {
+  function handleSelectStage3(idx: number | null): void {
+    const next = idx === selectedIndex() ? null : idx;
+    setSelectedIndex(next);
+    setPanelContext(next !== null ? "stage3" : null);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bubble CRUD helpers
+  // ---------------------------------------------------------------------------
+
+  async function handleMove(bubbleIndex: number, dx: number, dy: number): Promise<void> {
     const b = bubbleList().find((bbl) => bbl.bubbleIndex === bubbleIndex);
     if (!b) return;
     setActionError(null);
@@ -143,43 +180,30 @@ export function StudioPage() {
   }
 
   async function handleResize(
-    bubbleIndex: number,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
+    bubbleIndex: number, x: number, y: number, w: number, h: number,
   ): Promise<void> {
     setActionError(null);
     try {
-      await updateBubble(params.id, bubbleIndex, {
-        bubbleX: x,
-        bubbleY: y,
-        bubbleW: w,
-        bubbleH: h,
-      });
+      await updateBubble(params.id, bubbleIndex, { bubbleX: x, bubbleY: y, bubbleW: w, bubbleH: h });
       refetchBubbles();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to resize bubble");
     }
   }
 
-  async function handleDraw(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-  ): Promise<void> {
+  async function handleDraw(x: number, y: number, w: number, h: number): Promise<void> {
     setActionError(null);
     try {
       const b = await addBubble(params.id, { x, y, w, h });
       await refetchBubbles();
       setSelectedIndex(b.bubbleIndex);
+      setPanelContext("stage1");
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to add bubble");
     }
   }
 
-  async function handleBubbleUpdate(patch: BubbleUpdatePatch): Promise<void> {
+  async function handleBubbleUpdate(patch: UpdateBubbleBody): Promise<void> {
     const b = selectedBubble();
     if (!b) return;
     setActionError(null);
@@ -198,13 +222,17 @@ export function StudioPage() {
     try {
       await deleteBubble(params.id, b.bubbleIndex);
       setSelectedIndex(null);
+      setPanelContext(null);
       refetchBubbles();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to delete bubble");
     }
   }
 
-  /** Poll job status until it leaves the "processing" state (done or error). */
+  // ---------------------------------------------------------------------------
+  // Polling
+  // ---------------------------------------------------------------------------
+
   async function pollUntilDone(): Promise<void> {
     for (let i = 0; i < 120; i++) {
       await new Promise((r) => setTimeout(r, 1500));
@@ -213,12 +241,18 @@ export function StudioPage() {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Stage 1 — job-level actions
+  // ---------------------------------------------------------------------------
+
   async function handleRedetect(): Promise<void> {
     setIsRedetecting(true);
     setActionError(null);
     try {
       await redetectJob(params.id);
       await pollUntilDone();
+      setSelectedIndex(null);
+      setPanelContext(null);
       await refetchBubbles();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Re-detect failed");
@@ -227,19 +261,67 @@ export function StudioPage() {
     }
   }
 
-  async function handleRetranslate(): Promise<void> {
-    setIsRetranslating(true);
+  async function handleInpaint(): Promise<void> {
+    setIsInpainting(true);
     setActionError(null);
     try {
-      await retranslateJob(params.id);
+      await inpaintJob(params.id);
       await pollUntilDone();
-      await refetchBubbles();
+      await refetchJob();
+      setImageVersion((v) => v + 1);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Re-translate failed");
+      setActionError(err instanceof Error ? err.message : "Inpaint failed");
     } finally {
-      setIsRetranslating(false);
+      setIsInpainting(false);
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Stage 3 — job-level actions
+  // ---------------------------------------------------------------------------
+
+  async function handleAutoTexts(): Promise<void> {
+    setIsAutoTexts(true);
+    setActionError(null);
+    try {
+      await redetectJob(params.id);
+      await pollUntilDone();
+      await retranslateJob(params.id);
+      await pollUntilDone();
+      setSelectedIndex(null);
+      setPanelContext(null);
+      await refetchBubbles();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Auto Texts failed");
+    } finally {
+      setIsAutoTexts(false);
+    }
+  }
+
+  async function handleBurnTexts(): Promise<void> {
+    setIsBurning(true);
+    setActionError(null);
+    try {
+      await rerenderJob(params.id, bubblePadding());
+      await pollUntilDone();
+      await Promise.all([refetchJob(), refetchBubbles()]);
+      setImageVersion((v) => v + 1);
+      // Notify extension: Studio burned texts → result image updated
+      const resultUrl = `${jobResultUrl(params.id)}?v=${imageVersion()}`;
+      window.postMessage(
+        { type: "web-ocr:image-updated", jobId: params.id, resultUrl },
+        window.location.origin,
+      );
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Burn Texts failed");
+    } finally {
+      setIsBurning(false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Delete job
+  // ---------------------------------------------------------------------------
 
   async function handleDeleteJob(): Promise<void> {
     setIsDeleting(true);
@@ -254,23 +336,8 @@ export function StudioPage() {
     }
   }
 
-  async function handleRerender(): Promise<void> {
-    setIsRerendering(true);
-    setActionError(null);
-    try {
-      await rerenderJob(params.id, bubblePadding());
-      await pollUntilDone();
-      await Promise.all([refetchJob(), refetchBubbles()]);
-      setImageVersion((v) => v + 1);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Re-render failed");
-    } finally {
-      setIsRerendering(false);
-    }
-  }
-
   // ---------------------------------------------------------------------------
-  // Per-bubble action handlers
+  // Per-bubble action handlers (Stage 1 context)
   // ---------------------------------------------------------------------------
 
   async function handleBubbleReocr(): Promise<void> {
@@ -304,21 +371,58 @@ export function StudioPage() {
   }
 
   // ---------------------------------------------------------------------------
-  // Canvas props helper
+  // Canvas prop factories
   // ---------------------------------------------------------------------------
 
-  const canvasProps = () => ({
+  const stage1CanvasProps = () => ({
     bubbles: bubbleList(),
     selectedIndex: selectedIndex(),
     drawMode: isDrawMode(),
     bubblePadding: bubblePadding(),
-    onSelect: handleSelect,
+    onSelect: handleSelectStage1,
     onMove: handleMove,
     onResize: handleResize,
     onDraw: async (x: number, y: number, w: number, h: number) => {
       setIsDrawMode(false);
       await handleDraw(x, y, w, h);
     },
+    showTextOverlay: false,
+  });
+
+  async function handleRotateOverlay(bubbleIndex: number, rotation: number): Promise<void> {
+    setActionError(null);
+    try {
+      await updateBubble(params.id, bubbleIndex, { rotation });
+      refetchBubbles();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to update rotation");
+    }
+  }
+
+  // Stage 3: text overlay editing (move, resize, rotate all enabled)
+  const stage3CanvasProps = () => ({
+    bubbles: bubbleList(),
+    selectedIndex: selectedIndex(),
+    drawMode: false,
+    bubblePadding: bubblePadding(),
+    onSelect: handleSelectStage3,
+    onMove: handleMove,
+    onResize: handleResize,
+    onDraw: () => {},
+    onRotate: handleRotateOverlay,
+    showTextOverlay: true,
+  });
+
+  // Stage 2 / 4 are read-only views
+  const readOnlyCanvasProps = () => ({
+    bubbles: bubbleList(),
+    selectedIndex: null as number | null,
+    drawMode: false,
+    bubblePadding: bubblePadding(),
+    onSelect: () => {},
+    onMove: () => {},
+    onResize: () => {},
+    onDraw: () => {},
   });
 
   // ---------------------------------------------------------------------------
@@ -327,14 +431,14 @@ export function StudioPage() {
 
   function renderStage(stage: Stage, j: PageTranslationJob): JSX.Element {
     const v = imageVersion();
-    const inpaintedUrl = () => `${jobInpaintedUrl(params.id)}?v=${v}`;
-    const resultUrl    = () => `${jobResultUrl(params.id)}?v=${v}`;
+    const inpaintedUrl = `${jobInpaintedUrl(params.id)}?v=${v}`;
+    const resultUrl    = `${jobResultUrl(params.id)}?v=${v}`;
 
-    const noImagePlaceholder = (label: string) => (
+    const noImagePlaceholder = (label: string, hint: string) => (
       <div class="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400">
         <ImageOff class="h-10 w-10 opacity-40" />
         <p class="text-sm">{label}</p>
-        <p class="text-xs">Run Re-render to generate this image.</p>
+        <p class="text-xs">{hint}</p>
       </div>
     );
 
@@ -342,7 +446,7 @@ export function StudioPage() {
       case "original":
         return (
           <BubbleCanvas
-            {...canvasProps()}
+            {...stage1CanvasProps()}
             imageUrl={jobOriginalUrl(params.id)}
             imageWidth={j.originalWidth}
             imageHeight={j.originalHeight}
@@ -352,34 +456,32 @@ export function StudioPage() {
       case "inpainted":
         return j.inpaintedImagePath ? (
           <BubbleCanvas
-            {...canvasProps()}
-            imageUrl={inpaintedUrl()}
+            {...readOnlyCanvasProps()}
+            imageUrl={inpaintedUrl}
             imageWidth={j.originalWidth}
             imageHeight={j.originalHeight}
           />
-        ) : noImagePlaceholder("No inpainted image yet");
+        ) : noImagePlaceholder("No inpainted image", "Run Inpaint on Stage 1 first.");
 
       case "compose":
-        // Inpainted background + editable text overlay (glyphs only, no burn yet)
         return j.inpaintedImagePath ? (
           <BubbleCanvas
-            {...canvasProps()}
-            imageUrl={inpaintedUrl()}
+            {...stage3CanvasProps()}
+            imageUrl={inpaintedUrl}
             imageWidth={j.originalWidth}
             imageHeight={j.originalHeight}
-            showTextOverlay
           />
-        ) : noImagePlaceholder("No inpainted image yet");
+        ) : noImagePlaceholder("No inpainted image", "Run Inpaint on Stage 1 first.");
 
       case "result":
         return j.resultImagePath ? (
           <BubbleCanvas
-            {...canvasProps()}
-            imageUrl={resultUrl()}
+            {...readOnlyCanvasProps()}
+            imageUrl={resultUrl}
             imageWidth={j.originalWidth}
             imageHeight={j.originalHeight}
           />
-        ) : noImagePlaceholder("No result image yet");
+        ) : noImagePlaceholder("No result image", "Run Burn Texts on Stage 3 first.");
     }
   }
 
@@ -404,9 +506,7 @@ export function StudioPage() {
         {/* Title + status */}
         <Show
           when={job()}
-          fallback={
-            <div class="h-4 w-40 animate-pulse rounded bg-slate-200" />
-          }
+          fallback={<div class="h-4 w-40 animate-pulse rounded bg-slate-200" />}
         >
           {(j) => (
             <>
@@ -418,8 +518,11 @@ export function StudioPage() {
           )}
         </Show>
 
-        {/* Stage picker — click 1 or 2 stages; 2 shows side-by-side */}
-        <div class="ml-4 flex overflow-hidden rounded-lg border border-slate-200 text-xs">
+        {/* Separator */}
+        <div class="mx-1 h-5 w-px bg-slate-200" />
+
+        {/* Stage picker */}
+        <div class="flex overflow-hidden rounded-lg border border-slate-200 text-xs">
           <For each={ALL_STAGES}>
             {(stage) => {
               const isActive = () => activeStages().includes(stage);
@@ -432,11 +535,6 @@ export function StudioPage() {
                       ? "bg-violet-600 text-white"
                       : "bg-white text-slate-600 hover:bg-slate-50"
                   }`}
-                  title={
-                    isActive()
-                      ? `Hide ${STAGE_LABELS[stage]}`
-                      : `Show ${STAGE_LABELS[stage]}`
-                  }
                 >
                   {STAGE_LABELS[stage]}
                 </button>
@@ -446,7 +544,7 @@ export function StudioPage() {
         </div>
 
         {/* Bubble display padding */}
-        <div class="ml-3 flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600">
+        <div class="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600">
           <span class="select-none font-medium">Pad</span>
           <button
             class="flex h-5 w-5 items-center justify-center rounded hover:bg-slate-100 disabled:opacity-30"
@@ -471,51 +569,70 @@ export function StudioPage() {
           >+</button>
         </div>
 
+        {/* Separator */}
+        <div class="mx-1 h-5 w-px bg-slate-200" />
+
+        {/* Stage 1 — detection actions */}
+        <Show when={stage1Active()}>
+          <button
+            onClick={handleRedetect}
+            disabled={isRedetecting() || isInpainting()}
+            class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Re-detect speech bubbles"
+          >
+            <Show when={isRedetecting()} fallback={<ScanText class="h-3.5 w-3.5" />}>
+              <RefreshCw class="h-3.5 w-3.5 animate-spin" />
+            </Show>
+            Detect
+          </button>
+
+          <button
+            onClick={handleInpaint}
+            disabled={isInpainting() || isRedetecting()}
+            class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            title="White-fill all detected bubbles"
+          >
+            <Show when={isInpainting()} fallback={<PaintBucket class="h-3.5 w-3.5" />}>
+              <RefreshCw class="h-3.5 w-3.5 animate-spin" />
+            </Show>
+            Inpaint
+          </button>
+        </Show>
+
+        {/* Stage 1 + Stage 3 separator */}
+        <Show when={stage1Active() && stage3Active()}>
+          <div class="h-5 w-px bg-slate-200" />
+        </Show>
+
+        {/* Stage 3 — compose actions */}
+        <Show when={stage3Active()}>
+          <button
+            onClick={handleAutoTexts}
+            disabled={isAutoTexts() || isBurning()}
+            class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Re-run detect + translate to regenerate text overlays"
+          >
+            <Show when={isAutoTexts()} fallback={<Sparkles class="h-3.5 w-3.5" />}>
+              <RefreshCw class="h-3.5 w-3.5 animate-spin" />
+            </Show>
+            Auto Texts
+          </button>
+
+          <button
+            onClick={handleBurnTexts}
+            disabled={isBurning() || isAutoTexts()}
+            class="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Burn translated text into the result image"
+          >
+            <Show when={isBurning()} fallback={<Flame class="h-3.5 w-3.5" />}>
+              <RefreshCw class="h-3.5 w-3.5 animate-spin" />
+            </Show>
+            Burn Texts
+          </button>
+        </Show>
+
         {/* Spacer */}
         <div class="flex-1" />
-
-        {/* Action buttons */}
-        <button
-          onClick={handleRedetect}
-          disabled={isRedetecting()}
-          class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          title="Re-detect bubbles"
-          aria-label="Re-detect bubbles"
-        >
-          <Show when={isRedetecting()} fallback={<ScanText class="h-3.5 w-3.5" />}>
-            <RefreshCw class="h-3.5 w-3.5 animate-spin" />
-          </Show>
-          Re-detect
-        </button>
-
-        <button
-          onClick={handleRetranslate}
-          disabled={isRetranslating()}
-          class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          title="Re-translate"
-          aria-label="Re-translate"
-        >
-          <Show when={isRetranslating()} fallback={<Sparkles class="h-3.5 w-3.5" />}>
-            <RefreshCw class="h-3.5 w-3.5 animate-spin" />
-          </Show>
-          Re-translate
-        </button>
-
-        <button
-          onClick={handleRerender}
-          disabled={isRerendering()}
-          class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          title="Re-render image"
-          aria-label="Re-render image"
-        >
-          <Show when={isRerendering()} fallback={<RefreshCw class="h-3.5 w-3.5" />}>
-            <RefreshCw class="h-3.5 w-3.5 animate-spin" />
-          </Show>
-          Re-render
-        </button>
-
-        {/* Divider */}
-        <div class="mx-1 h-5 w-px bg-slate-200" />
 
         {/* Delete job */}
         <button
@@ -541,7 +658,7 @@ export function StudioPage() {
         onCancel={() => { if (!isDeleting()) setShowDeleteConfirm(false); }}
       />
 
-      {/* ── Action error banner ─────────────────────────────────────────── */}
+      {/* ── Action error banner ────────────────────────────────────────────── */}
       <Show when={actionError()}>
         {(msg) => (
           <div class="flex items-center gap-2 bg-red-50 px-4 py-2 text-sm text-red-700 ring-1 ring-inset ring-red-200">
@@ -557,7 +674,7 @@ export function StudioPage() {
         )}
       </Show>
 
-      {/* ── Loading / error states ───────────────────────────────────────── */}
+      {/* ── Loading / error states ─────────────────────────────────────────── */}
       <Show when={job.loading}>
         <div class="flex flex-1 items-center justify-center">
           <p class="text-sm text-slate-400">Loading job…</p>
@@ -570,70 +687,211 @@ export function StudioPage() {
         </div>
       </Show>
 
-      {/* ── Main studio layout ────────────────────────────────────────────── */}
+      {/* ── Main studio layout ─────────────────────────────────────────────── */}
       <Show when={!job.loading && !job.error && job()}>
         {(j) => (
           <div class="flex flex-1 overflow-hidden">
-            {/* Left — bubble list */}
-            <aside class="flex w-52 shrink-0 flex-col border-r border-slate-200 bg-white">
-              <BubbleList
-                bubbles={bubbleList()}
-                selectedIndex={selectedIndex()}
-                onSelect={handleSelect}
-                onAddBubble={() => setIsDrawMode(true)}
-              />
-            </aside>
 
-            {/* Centre — stage panels (1 or 2 active) */}
+            {/* ── Left panel (collapsible) ────────────────────────────────── */}
+            <Show when={!leftCollapsed()}>
+              <aside class="flex w-52 shrink-0 flex-col border-r border-slate-200 bg-white overflow-hidden">
+
+                {/* Stage 1 section: detection + bubble list */}
+                <Show when={stage1Active()}>
+                  <div
+                    class={`flex flex-col overflow-hidden ${
+                      stage3Active() ? "flex-1 border-b border-slate-200" : "flex-1"
+                    }`}
+                  >
+                    <BubbleList
+                      bubbles={bubbleList()}
+                      selectedIndex={panelContext() === "stage1" ? selectedIndex() : null}
+                      onSelect={handleSelectStage1}
+                      onAddBubble={() => setIsDrawMode(true)}
+                    />
+                  </div>
+                </Show>
+
+                {/* Stage 3 section: text overlay list */}
+                <Show when={stage3Active()}>
+                  <div class="flex flex-1 flex-col overflow-hidden">
+                    {/* Section header */}
+                    <div class="flex shrink-0 items-center gap-2 border-b border-slate-100 px-3 py-2">
+                      <span class="flex-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Overlays ({bubbleList().length})
+                      </span>
+                    </div>
+                    {/* Overlay list */}
+                    <div class="flex-1 overflow-y-auto">
+                      <Show
+                        when={bubbleList().length > 0}
+                        fallback={
+                          <div class="px-3 py-6 text-center text-xs text-slate-400">
+                            No text overlays
+                          </div>
+                        }
+                      >
+                        <For each={bubbleList()}>
+                          {(bubble) => {
+                            const isSelected = () =>
+                              panelContext() === "stage3" &&
+                              selectedIndex() === bubble.bubbleIndex;
+                            return (
+                              <button
+                                data-bubble-idx={bubble.bubbleIndex}
+                                onClick={() =>
+                                  handleSelectStage3(
+                                    isSelected() ? null : bubble.bubbleIndex,
+                                  )
+                                }
+                                class={`w-full border-b border-slate-100 px-3 py-2 text-left transition-colors ${
+                                  isSelected()
+                                    ? "border-l-2 border-l-violet-500 bg-violet-50"
+                                    : "hover:bg-slate-50"
+                                } ${bubble.isExcluded ? "opacity-50" : ""}`}
+                              >
+                                <div class="flex items-center gap-1.5">
+                                  <span
+                                    class={`font-mono text-xs font-medium ${
+                                      isSelected() ? "text-violet-700" : "text-slate-500"
+                                    }`}
+                                  >
+                                    #{bubble.bubbleIndex}
+                                  </span>
+                                  <Show when={bubble.isExcluded}>
+                                    <span class="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-medium text-slate-500">
+                                      ×
+                                    </span>
+                                  </Show>
+                                </div>
+                                <p
+                                  class={`mt-0.5 truncate text-xs ${
+                                    bubble.isExcluded
+                                      ? "line-through text-slate-400"
+                                      : "text-slate-600"
+                                  }`}
+                                >
+                                  {bubble.translatedText?.slice(0, 24) || "(no text)"}
+                                </p>
+                              </button>
+                            );
+                          }}
+                        </For>
+                      </Show>
+                    </div>
+                  </div>
+                </Show>
+
+                {/* Fallback when no working stage is active */}
+                <Show when={!stage1Active() && !stage3Active()}>
+                  <div class="flex flex-1 items-center justify-center p-4 text-center text-xs text-slate-400">
+                    Activate Stage 1 or Stage 3 to edit
+                  </div>
+                </Show>
+              </aside>
+            </Show>
+
+            {/* Collapse toggle — left */}
+            <button
+              onClick={() => setLeftCollapsed((v) => !v)}
+              class="flex w-4 shrink-0 items-center justify-center border-r border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              title={leftCollapsed() ? "Expand left panel" : "Collapse left panel"}
+              aria-label={leftCollapsed() ? "Expand left panel" : "Collapse left panel"}
+            >
+              <Show
+                when={leftCollapsed()}
+                fallback={<ChevronLeft class="h-3 w-3" />}
+              >
+                <ChevronRight class="h-3 w-3" />
+              </Show>
+            </button>
+
+            {/* ── Centre — stage panels ──────────────────────────────────── */}
             <main class="relative flex flex-1 overflow-hidden">
               <Show
-                when={activeStages().length === 2}
+                when={sortedActiveStages().length === 2}
                 fallback={
-                  /* Single stage — full width */
                   <div class="relative flex flex-1 flex-col overflow-hidden">
                     <div class="shrink-0 bg-slate-100 px-2 py-0.5 text-center text-xs font-medium text-slate-500">
-                      {STAGE_LABELS[activeStages()[0]!]}
+                      {STAGE_LABELS[sortedActiveStages()[0]!]}
                     </div>
                     <div class="flex-1 overflow-hidden">
-                      {renderStage(activeStages()[0]!, j())}
+                      {renderStage(sortedActiveStages()[0]!, j())}
                     </div>
                   </div>
                 }
               >
-                {/* Side-by-side — two stages */}
                 <div class="flex h-full w-full">
-                  <div class="flex flex-col flex-1 overflow-hidden border-r border-slate-200">
+                  <div class="flex flex-1 flex-col overflow-hidden border-r border-slate-200">
                     <div class="shrink-0 bg-slate-100 px-2 py-0.5 text-center text-xs font-medium text-slate-500">
-                      {STAGE_LABELS[activeStages()[0]!]}
+                      {STAGE_LABELS[sortedActiveStages()[0]!]}
                     </div>
                     <div class="flex-1 overflow-hidden">
-                      {renderStage(activeStages()[0]!, j())}
+                      {renderStage(sortedActiveStages()[0]!, j())}
                     </div>
                   </div>
-                  <div class="flex flex-col flex-1 overflow-hidden">
+                  <div class="flex flex-1 flex-col overflow-hidden">
                     <div class="shrink-0 bg-slate-100 px-2 py-0.5 text-center text-xs font-medium text-slate-500">
-                      {STAGE_LABELS[activeStages()[1]!]}
+                      {STAGE_LABELS[sortedActiveStages()[1]!]}
                     </div>
                     <div class="flex-1 overflow-hidden">
-                      {renderStage(activeStages()[1]!, j())}
+                      {renderStage(sortedActiveStages()[1]!, j())}
                     </div>
                   </div>
                 </div>
               </Show>
             </main>
 
-            {/* Right — bubble editor */}
-            <aside class="flex w-64 shrink-0 flex-col border-l border-slate-200 bg-white">
-              <BubbleEditor
-                bubble={selectedBubble()}
-                onUpdate={handleBubbleUpdate}
-                onDelete={handleBubbleDelete}
-                onReocr={handleBubbleReocr}
-                onRetranslate={handleBubbleRetranslate}
-                onReinpaint={handleBubbleReinpaint}
-                onRepatch={handleBubbleRepatch}
-              />
-            </aside>
+            {/* Collapse toggle — right */}
+            <button
+              onClick={() => setRightCollapsed((v) => !v)}
+              class="flex w-4 shrink-0 items-center justify-center border-l border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              title={rightCollapsed() ? "Expand right panel" : "Collapse right panel"}
+              aria-label={rightCollapsed() ? "Expand right panel" : "Collapse right panel"}
+            >
+              <Show
+                when={rightCollapsed()}
+                fallback={<ChevronRight class="h-3 w-3" />}
+              >
+                <ChevronLeft class="h-3 w-3" />
+              </Show>
+            </button>
+
+            {/* ── Right panel (collapsible, context-sensitive) ────────────── */}
+            <Show when={!rightCollapsed()}>
+              <aside class="flex w-64 shrink-0 flex-col border-l border-slate-200 bg-white">
+                <Show
+                  when={panelContext() === "stage1"}
+                  fallback={
+                    <Show
+                      when={panelContext() === "stage3"}
+                      fallback={
+                        <div class="flex flex-1 items-center justify-center p-4 text-center text-xs text-slate-400">
+                          Select a bubble or overlay to edit
+                        </div>
+                      }
+                    >
+                      <TextStyleEditor
+                        bubble={selectedBubble()}
+                        onUpdate={(patch: TextStylePatch) => handleBubbleUpdate(patch as UpdateBubbleBody)}
+                        onDelete={handleBubbleDelete}
+                      />
+                    </Show>
+                  }
+                >
+                  <BubbleEditor
+                    bubble={selectedBubble()}
+                    onUpdate={(patch: BubbleUpdatePatch) => handleBubbleUpdate(patch as UpdateBubbleBody)}
+                    onDelete={handleBubbleDelete}
+                    onReocr={handleBubbleReocr}
+                    onRetranslate={handleBubbleRetranslate}
+                    onReinpaint={handleBubbleReinpaint}
+                    onRepatch={handleBubbleRepatch}
+                  />
+                </Show>
+              </aside>
+            </Show>
+
           </div>
         )}
       </Show>

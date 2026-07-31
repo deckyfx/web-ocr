@@ -164,8 +164,13 @@ public static class PortalRoutes
             if (req.SourceText      is not null) bubble.SourceText      = req.SourceText;
             if (req.TranslatedText  is not null) bubble.TranslatedText  = req.TranslatedText;
             if (req.IsExcluded      is not null) bubble.IsExcluded      = req.IsExcluded.Value;
-            if (req.FontFamily      is not null) bubble.FontFamily      = req.FontFamily == "" ? null : req.FontFamily;
-            if (req.FontSizeOverride is not null) bubble.FontSizeOverride = req.FontSizeOverride == 0 ? null : req.FontSizeOverride;
+            if (req.FontFamily        is not null) bubble.FontFamily        = req.FontFamily == "" ? null : req.FontFamily;
+            if (req.FontSizeOverride  is not null) bubble.FontSizeOverride  = req.FontSizeOverride == 0 ? null : req.FontSizeOverride;
+            if (req.FontColor         is not null) bubble.FontColor         = req.FontColor == "" ? null : req.FontColor;
+            if (req.StrokeColor       is not null) bubble.StrokeColor       = req.StrokeColor == "" ? null : req.StrokeColor;
+            if (req.StrokeWidth       is not null) bubble.StrokeWidth       = req.StrokeWidth == 0 ? null : req.StrokeWidth;
+            if (req.Rotation          is not null) bubble.Rotation          = req.Rotation == 0f ? null : req.Rotation;
+            if (req.TextAlign         is not null) bubble.TextAlign         = req.TextAlign == "" ? null : req.TextAlign;
 
             bubble.LastEditedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
@@ -385,6 +390,47 @@ public static class PortalRoutes
             return Results.Accepted(null, new { id });
         });
 
+        g.MapPost("/jobs/{id}/inpaint", async (
+            string                 id,
+            PageTranslationService pipeline,
+            AppDbContext           db,
+            ILoggerFactory         loggerFactory) =>
+        {
+            var job = await db.PageTranslationJobs.FindAsync(id);
+            if (job is null) return Results.NotFound();
+
+            var logger = loggerFactory.CreateLogger("PortalInpaint");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = pipeline.CreateScope();
+                    var db2 = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    var j   = await db2.PageTranslationJobs.FindAsync(id);
+                    if (j is not null) { j.Status = "processing"; await db2.SaveChangesAsync(); }
+
+                    await pipeline.InpaintOnlyAsync(id);
+
+                    j = await db2.PageTranslationJobs.FindAsync(id);
+                    if (j is not null) { j.Status = "done"; await db2.SaveChangesAsync(); }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Inpaint failed for job {Id}", id);
+                    try
+                    {
+                        using var scope = pipeline.CreateScope();
+                        var db2 = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        var j   = await db2.PageTranslationJobs.FindAsync(id);
+                        if (j is not null) { j.Status = "error"; j.ErrorMessage = ex.Message; await db2.SaveChangesAsync(); }
+                    }
+                    catch { /* swallow */ }
+                }
+            });
+
+            return Results.Accepted(null, new { id });
+        });
+
         // ── Volumes ───────────────────────────────────────────────────────────
 
         g.MapGet("/volumes", async (AppDbContext db) =>
@@ -532,7 +578,9 @@ public static class PortalRoutes
     private record UpdateBubbleRequest(
         float?  BubbleX, float? BubbleY, float? BubbleW, float? BubbleH,
         string? SourceText, string? TranslatedText, bool? IsExcluded,
-        string? FontFamily = null, int? FontSizeOverride = null);
+        string? FontFamily = null, int? FontSizeOverride = null,
+        string? FontColor = null, string? StrokeColor = null,
+        int? StrokeWidth = null, float? Rotation = null, string? TextAlign = null);
     private record CreateVolumeRequest(string Title, string? Synopsis);
     private record UpdateVolumeRequest(string? Title, string? Synopsis, int? SortOrder);
     private record CreateChapterRequest(string Title, string ChapterNumber, int? VolumeId);
