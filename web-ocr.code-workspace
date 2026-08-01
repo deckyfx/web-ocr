@@ -1,0 +1,107 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "web-ocr"
+    },
+    {
+      "path": "manga-reader",
+      "name": "manga-reader (reference)"
+    }
+  ],
+  "settings": {
+    // Hide manga-reader from the root folder view (it lives in its own workspace folder above)
+    "files.exclude": {
+      "manga-reader": true
+    },
+
+    // C# / .NET
+    "dotnet.defaultSolution": "WebOcr.slnx",
+    "omnisharp.enableEditorConfigSupport": true,
+    "csharp.semanticHighlighting.enabled": true,
+
+    // Editor
+    "editor.formatOnSave": true,
+    "editor.rulers": [120],
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+
+    // Per-language overrides
+    "[typescript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.tabSize": 2
+    },
+    "[typescriptreact]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.tabSize": 2
+    },
+    "[json]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.tabSize": 2
+    },
+    "[csharp]": {
+      "editor.defaultFormatter": "ms-dotnettools.csharp"
+    },
+    "[html]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.tabSize": 2
+    },
+
+    // Search / file watcher — exclude heavy build artefacts
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/bin": true,
+      "**/obj": true,
+      "**/dist": true,
+      "server/data": true,
+      "server/wwwroot/js": true,
+      "server/Migrations": true
+    },
+    "files.watcherExclude": {
+      "**/node_modules/**": true,
+      "**/bin/**": true,
+      "**/obj/**": true,
+      "server/data/**": true
+    },
+
+    // Tailwind: server ClientApp uses Tailwind
+    "tailwindCSS.experimental.configFile": "server/ClientApp/tailwind.config.ts",
+    "tailwindCSS.includeLanguages": {
+      "typescript": "javascript",
+      "typescriptreact": "javascript"
+    },
+
+    // File nesting for a tidier explorer
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.expand": false,
+    "explorer.fileNesting.patterns": {
+      "*.cs": "${capture}.Designer.cs,${capture}.*.cs",
+      "*.tsx": "${capture}.css,${capture}.module.css",
+      "package.json": "package-lock.json,bun.lock,bun.lockb,.npmrc,.yarnrc,.yarnrc.yml,yarn.lock",
+      "tsconfig.json": "tsconfig.*.json",
+      "*.slnx": "*.sln,*.slnx",
+      "docker-compose.yml": "docker-compose.*.yml"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      // C# / .NET
+      "ms-dotnettools.csdevkit",
+      "ms-dotnettools.csharp",
+      "ms-dotnettools.vscode-dotnet-runtime",
+      // TypeScript / JavaScript
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode",
+      // Styling
+      "bradlc.vscode-tailwindcss",
+      // Git
+      "eamodio.gitlens",
+      // Misc quality-of-life
+      "EditorConfig.EditorConfig",
+      "streetsidesoftware.code-spell-checker"
+    ],
+    "unwantedRecommendations": []
+  }
+}

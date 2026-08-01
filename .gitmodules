@@ -1,0 +1,3 @@
+[submodule "manga-reader"]
+	path = manga-reader
+	url = git@github.com:deckyfx/manga-reader.git

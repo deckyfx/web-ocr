@@ -1,0 +1,109 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    // ── Server ────────────────────────────────────────────────────────────────
+    {
+      "label": "server: dotnet build",
+      "type": "shell",
+      "command": "dotnet build WebOcr.slnx",
+      "group": "build",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "server: dotnet run",
+      "type": "shell",
+      "command": "dotnet run --project server/WebOcrServer.csproj",
+      "group": "none",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^.*$", "file": 1, "line": 2, "message": 3 },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*Starting.*$",
+          "endsPattern": "^.*Now listening on.*$"
+        }
+      }
+    },
+    {
+      "label": "server: vite dev",
+      "type": "shell",
+      "command": "bun run dev",
+      "group": "none",
+      "options": { "cwd": "${workspaceFolder}/server" },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "server: vite build",
+      "type": "shell",
+      "command": "bun run build",
+      "group": "build",
+      "options": { "cwd": "${workspaceFolder}/server" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "server: dotnet ef migrate",
+      "type": "shell",
+      "command": "dotnet ef database update",
+      "group": "none",
+      "options": { "cwd": "${workspaceFolder}/server" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+
+    // ── Extension ─────────────────────────────────────────────────────────────
+    {
+      "label": "extension: build",
+      "type": "shell",
+      "command": "bun run build",
+      "group": "build",
+      "options": { "cwd": "${workspaceFolder}/extension" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "extension: build:dev",
+      "type": "shell",
+      "command": "bun run build:dev",
+      "group": "build",
+      "options": { "cwd": "${workspaceFolder}/extension" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "extension: typecheck",
+      "type": "shell",
+      "command": "bun run typecheck",
+      "group": "test",
+      "options": { "cwd": "${workspaceFolder}/extension" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+
+    // ── Desktop ───────────────────────────────────────────────────────────────
+    {
+      "label": "desktop: dotnet build",
+      "type": "shell",
+      "command": "dotnet build",
+      "group": "build",
+      "options": { "cwd": "${workspaceFolder}/desktop" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "desktop: dotnet run",
+      "type": "shell",
+      "command": "dotnet run",
+      "group": "none",
+      "options": { "cwd": "${workspaceFolder}/desktop" },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}
