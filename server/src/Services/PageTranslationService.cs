@@ -14,7 +14,7 @@ public record PageTranslationProgress(string Stage, double Progress);
 ///   <item>Bubble detection (RT-DETR ONNX or whole-image fallback)</item>
 ///   <item>OCR (manga-ocr ONNX, via InferenceQueue)</item>
 ///   <item>Translation (Opus-MT ONNX, via InferenceQueue)</item>
-///   <item>White-fill inpainting (LaMa placeholder)</item>
+///   <item>Inpainting (LaMa ONNX via InferenceQueue, or flood-fill fallback)</item>
 ///   <item>Typesetting (SkiaSharp)</item>
 /// </list>
 /// All ONNX work is routed through <see cref="InferenceQueue"/> to keep CPU sessions serialised.
@@ -24,6 +24,7 @@ public record PageTranslationProgress(string Stage, double Progress);
 public sealed class PageTranslationService(
     BubbleDetectionService          bubbleDetector,
     TypesettingService              typesetter,
+    InpaintService                  inpaintSvc,
     InferenceQueue                  queue,
     AppConfig                       config,
     ModelSettingsStore              modelSettings,
@@ -149,16 +150,15 @@ public sealed class PageTranslationService(
             await LogBubbleAsync(jobId, i, bubbles[i], sourceText, translated);
         }
 
-        // ── 3. Inpainting — white-fill all bubbles, save inpainted.png ───────
-        log?.Invoke(new("log", "Removing original text (white-fill)...", "inpainting", 0.72));
+        // ── 3. Inpainting — erase bubble text, save inpainted.png ───────────
+        var inpaintEngine = modelSettings.Current.PreferredInpaintEngine;
+        var inpaintLabel  = inpaintEngine is "auto" or "lama" && inpaintSvc.IsReady ? "LaMa" : "flood-fill";
+        log?.Invoke(new("log", $"Removing original text ({inpaintLabel})...", "inpainting", 0.72));
         progress.Report(new("inpainting", 0.72));
 
         // Inpaint every detected bubble, not just those with a translation —
         // a bubble may have failed OCR but still needs its background cleaned.
-        var allBubbleFills = bubbles
-            .Select(b => new BubbleTranslation(b, "", ""))
-            .ToList();
-        var inpaintedPng  = await Task.Run(() => typesetter.WhiteFillAll(imagePng, allBubbleFills), ct);
+        var inpaintedPng = await RunInpaintAsync(imagePng, bubbles, ct);
         var inpaintedPath = Path.Combine(jobDir, "inpainted.png");
         await File.WriteAllBytesAsync(inpaintedPath, inpaintedPng, ct);
         var relInpainted = Path.Combine("jobs", jobId, "inpainted.png");
@@ -287,8 +287,8 @@ public sealed class PageTranslationService(
             {
                 // Regenerate inpainted.png from current bubble positions so moved/
                 // resized boxes are reflected in the clean background layer.
-                var freshInpainted = await Task.Run(
-                    () => typesetter.WhiteFillAll(originalPng, allBubbleFills), ct);
+                var freshInpainted = await RunInpaintAsync(
+                    originalPng, allBubbleFills.ConvertAll(t => t.Box), ct);
                 await File.WriteAllBytesAsync(inpaintedPath, freshInpainted, ct);
 
                 var job2 = await db.PageTranslationJobs.FindAsync(jobId);
@@ -329,8 +329,9 @@ public sealed class PageTranslationService(
     }
 
     /// <summary>
-    /// White-fills all non-excluded bubble regions in the original image and saves the result as
-    /// inpainted.png. Does NOT render any translated text — it is a pure inpaint-only operation.
+    /// Erases text from all non-excluded bubble regions using the configured inpaint engine
+    /// (LaMa ONNX when available and selected, otherwise BFS flood-fill) and saves the result
+    /// as inpainted.png. Does NOT render any translated text — it is a pure inpaint-only operation.
     /// Use this when the user clicks "Inpaint All" in Stage 1 of the Studio without re-rendering.
     /// </summary>
     public async Task InpaintOnlyAsync(string jobId, CancellationToken ct = default)
@@ -356,8 +357,8 @@ public sealed class PageTranslationService(
         try
         {
             var originalPng   = await File.ReadAllBytesAsync(originalPath, ct);
-            var inpaintedPng  = allBubbleFills.Count > 0
-                ? await Task.Run(() => typesetter.WhiteFillAll(originalPng, allBubbleFills), ct)
+            var inpaintedPng = allBubbleFills.Count > 0
+                ? await RunInpaintAsync(originalPng, allBubbleFills.ConvertAll(t => t.Box), ct)
                 : originalPng;
 
             var inpaintedPath = Path.Combine(config.JobsDir, jobId, "inpainted.png");
@@ -371,6 +372,30 @@ public sealed class PageTranslationService(
             }
         }
         finally { imgLock.Release(); }
+    }
+
+    // ── Inpaint routing ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Routes inpainting to the LaMa ONNX model when available and the configured engine
+    /// permits it, otherwise falls back to the BFS flood-fill implementation.
+    /// </summary>
+    private async Task<byte[]> RunInpaintAsync(byte[] imagePng, IReadOnlyList<BubbleBox> boxes, CancellationToken ct)
+    {
+        var engine = modelSettings.Current.PreferredInpaintEngine;
+        // Positive match: only "auto" or "lama" selects ML model; any unexpected value falls back to flood-fill.
+        // Route through InferenceQueue so LaMa shares the same serialization budget as OCR/translate,
+        // preventing concurrent ONNX sessions from oversubscribing the CPU.
+        if (engine is "auto" or "lama" && inpaintSvc.IsReady)
+        {
+            var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await queue.Writer.WriteAsync(new InpaintJob(imagePng, boxes, MaskDilate: 4, tcs), ct);
+            return (byte[])await tcs.Task;
+        }
+
+        // Flood-fill fallback (no ONNX — safe to run on thread pool)
+        var fills = boxes.Select(b => new BubbleTranslation(b, "", "")).ToList();
+        return await Task.Run(() => typesetter.WhiteFillAll(imagePng, fills), ct);
     }
 
     // ── Public helpers used by PortalRoutes ───────────────────────────────────

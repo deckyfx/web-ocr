@@ -50,5 +50,6 @@ public record HealthResponse(
     string DataDir,
     bool DeeplAvailable,
     string PreferredTranslationEngine,
+    string PreferredInpaintEngine,
     Dictionary<string, ModelStatus> Models
 );

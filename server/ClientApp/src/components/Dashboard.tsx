@@ -27,6 +27,7 @@ interface HealthInfo {
   data_dir:                     string;
   deepl_available:              boolean;
   preferred_translation_engine: string;
+  preferred_inpaint_engine:     string;
   models:                       Record<string, ModelStatus>;
 }
 
@@ -79,6 +80,8 @@ export function Dashboard() {
   const [err, setErr]       = createSignal<string | null>(null);
   const [saving, setSaving] = createSignal(false);
   const [savedEngine, setSavedEngine] = createSignal<string | null>(null);
+  const [savingInpaint, setSavingInpaint] = createSignal(false);
+  const [savedInpaintEngine, setSavedInpaintEngine] = createSignal<string | null>(null);
 
   onMount(fetchHealth);
 
@@ -92,6 +95,7 @@ export function Dashboard() {
       .then((h) => {
         setHealth(h);
         setSavedEngine(h.preferred_translation_engine);
+        setSavedInpaintEngine(h.preferred_inpaint_engine);
       })
       .catch((e: unknown) => setErr(String(e)));
   }
@@ -128,6 +132,25 @@ export function Dashboard() {
       setErr(String(e));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function changeInpaintEngine(engine: string) {
+    if (savingInpaint()) return;
+    setErr(null);
+    setSavingInpaint(true);
+    try {
+      const res = await fetch("/api/settings/inpaint-engine", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ engine }),
+      });
+      if (!res.ok) throw new Error(`Failed to save inpaint settings (HTTP ${res.status})`);
+      setSavedInpaintEngine(engine);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSavingInpaint(false);
     }
   }
 
@@ -262,6 +285,53 @@ export function Dashboard() {
                       }}
                     </For>
                     <Show when={saving()}>
+                      <span class="flex items-center gap-1 text-xs text-slate-400">
+                        <CircleDashed class="h-3 w-3 animate-spin" /> Saving…
+                      </span>
+                    </Show>
+                  </div>
+                </div>
+              </div>
+
+              {/* Inpaint engine */}
+              <div class="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+                <div class="border-b border-slate-100 px-5 py-3">
+                  <span class="text-sm font-medium text-slate-600">Inpaint engine</span>
+                </div>
+                <div class="px-5 py-4">
+                  <p class="mb-3 text-xs text-slate-400">
+                    Engine used to erase text from speech bubbles. LaMa requires the inpaint model to be enabled and downloaded. Takes effect immediately.
+                  </p>
+                  <div class="flex flex-wrap gap-2">
+                    <For each={[
+                      { value: "auto",       label: "Auto",       desc: "LaMa if model ready, else flood-fill" },
+                      { value: "flood_fill", label: "Flood-fill", desc: "Fast BFS flood-fill (no model needed)" },
+                      { value: "lama",       label: "LaMa",       desc: "LaMa ONNX neural inpainting" },
+                    ]}>
+                      {(opt) => {
+                        const active   = () => savedInpaintEngine() === opt.value;
+                        const lamaReady = () => h().models["inpaint"]?.ready ?? false;
+                        const disabled = () => opt.value === "lama" && !lamaReady();
+                        return (
+                          <button
+                            disabled={disabled() || savingInpaint()}
+                            onClick={() => changeInpaintEngine(opt.value)}
+                            title={disabled() ? "LaMa model not ready — enable and restart" : opt.desc}
+                            class={`rounded-lg border px-4 py-2 text-sm transition-colors ${
+                              active()
+                                ? "border-violet-500 bg-violet-50 font-semibold text-violet-700"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                            } ${disabled() ? "cursor-not-allowed opacity-40" : ""}`}
+                          >
+                            {opt.label}
+                            <Show when={active()}>
+                              <span class="ml-1.5 text-xs opacity-60">✓</span>
+                            </Show>
+                          </button>
+                        );
+                      }}
+                    </For>
+                    <Show when={savingInpaint()}>
                       <span class="flex items-center gap-1 text-xs text-slate-400">
                         <CircleDashed class="h-3 w-3 animate-spin" /> Saving…
                       </span>

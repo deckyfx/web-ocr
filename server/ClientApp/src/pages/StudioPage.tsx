@@ -28,11 +28,13 @@ import {
   jobResultUrl,
   redetectJob,
   reocrBubble,
+  reocrJob,
   repatchBubble,
   reinpaintBubble,
   rerenderJob,
   retranslateBubble,
   retranslateJob,
+  translateJob,
   updateBubble,
 } from "../api";
 import type { UpdateBubbleBody } from "../api";
@@ -94,6 +96,8 @@ export function StudioPage() {
   // Job action states
   const [isRedetecting, setIsRedetecting] = createSignal(false);
   const [isInpainting, setIsInpainting] = createSignal(false);
+  const [isReocring, setIsReocring] = createSignal(false);
+  const [isTranslating, setIsTranslating] = createSignal(false);
   const [isAutoTexts, setIsAutoTexts] = createSignal(false);
   const [isBurning, setIsBurning] = createSignal(false);
 
@@ -275,6 +279,42 @@ export function StudioPage() {
       setActionError(err instanceof Error ? err.message : "Inpaint failed");
     } finally {
       setIsInpainting(false);
+    }
+  }
+
+  async function handleReocr(): Promise<void> {
+    setIsReocring(true);
+    setActionError(null);
+    try {
+      await reocrJob(params.id);
+      await pollUntilDone();
+      const j = await getJob(params.id);
+      if (j.status === "error") {
+        setActionError(j.errorMessage ?? "OCR failed");
+      }
+      await refetchBubbles();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "OCR failed");
+    } finally {
+      setIsReocring(false);
+    }
+  }
+
+  async function handleTranslate(): Promise<void> {
+    setIsTranslating(true);
+    setActionError(null);
+    try {
+      await translateJob(params.id);
+      await pollUntilDone();
+      const j = await getJob(params.id);
+      if (j.status === "error") {
+        setActionError(j.errorMessage ?? "Translate failed");
+      }
+      await refetchBubbles();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Translate failed");
+    } finally {
+      setIsTranslating(false);
     }
   }
 
@@ -578,7 +618,7 @@ export function StudioPage() {
         <Show when={stage1Active()}>
           <button
             onClick={handleRedetect}
-            disabled={isRedetecting() || isInpainting() || isAutoTexts() || isBurning()}
+            disabled={isRedetecting() || isInpainting() || isReocring() || isTranslating() || isAutoTexts() || isBurning()}
             class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             title="Re-detect speech bubbles"
           >
@@ -590,14 +630,38 @@ export function StudioPage() {
 
           <button
             onClick={handleInpaint}
-            disabled={isInpainting() || isRedetecting() || isAutoTexts() || isBurning()}
+            disabled={isInpainting() || isRedetecting() || isReocring() || isTranslating() || isAutoTexts() || isBurning()}
             class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            title="White-fill all detected bubbles"
+            title="Erase bubble text using the selected inpaint engine (LaMa neural or flood-fill)"
           >
             <Show when={isInpainting()} fallback={<PaintBucket class="h-3.5 w-3.5" />}>
               <RefreshCw class="h-3.5 w-3.5 animate-spin" />
             </Show>
             Inpaint
+          </button>
+
+          <button
+            onClick={handleReocr}
+            disabled={isReocring() || isRedetecting() || isInpainting() || isTranslating() || isAutoTexts() || isBurning()}
+            class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Run OCR on all bubbles to extract source text"
+          >
+            <Show when={isReocring()} fallback={<ScanText class="h-3.5 w-3.5" />}>
+              <RefreshCw class="h-3.5 w-3.5 animate-spin" />
+            </Show>
+            OCR
+          </button>
+
+          <button
+            onClick={handleTranslate}
+            disabled={isTranslating() || isRedetecting() || isInpainting() || isReocring() || isAutoTexts() || isBurning()}
+            class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Translate all bubbles that have OCR text"
+          >
+            <Show when={isTranslating()} fallback={<Type class="h-3.5 w-3.5" />}>
+              <RefreshCw class="h-3.5 w-3.5 animate-spin" />
+            </Show>
+            Translate
           </button>
         </Show>
 
@@ -610,7 +674,7 @@ export function StudioPage() {
         <Show when={stage3Active()}>
           <button
             onClick={handleAutoTexts}
-            disabled={isAutoTexts() || isBurning() || isRedetecting() || isInpainting()}
+            disabled={isAutoTexts() || isBurning() || isRedetecting() || isInpainting() || isReocring() || isTranslating()}
             class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             title="Re-run detect + translate to regenerate text overlays"
           >
@@ -622,7 +686,7 @@ export function StudioPage() {
 
           <button
             onClick={handleBurnTexts}
-            disabled={isBurning() || isAutoTexts() || isRedetecting() || isInpainting()}
+            disabled={isBurning() || isAutoTexts() || isRedetecting() || isInpainting() || isReocring() || isTranslating()}
             class="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
             title="Burn translated text into the result image"
           >

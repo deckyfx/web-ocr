@@ -182,6 +182,14 @@ export function retranslateJob(id: string): Promise<void> {
   return apiFetch<void>(`/api/portal/jobs/${id}/retranslate`, { method: "POST" });
 }
 
+export function reocrJob(id: string): Promise<void> {
+  return apiFetch<void>(`/api/portal/jobs/${id}/reocr`, { method: "POST" });
+}
+
+export function translateJob(id: string): Promise<void> {
+  return apiFetch<void>(`/api/portal/jobs/${id}/translate`, { method: "POST" });
+}
+
 export function inpaintJob(id: string): Promise<void> {
   return apiFetch<void>(`/api/portal/jobs/${id}/inpaint`, { method: "POST" });
 }

@@ -7,9 +7,10 @@ namespace WebOcrServer;
 /// Keeps ONNX sessions away from the ASP.NET thread pool.
 /// </summary>
 public sealed class InferenceWorker(
-    InferenceQueue    queue,
-    OcrEngine         ocr,
-    TranslateService  translate,
+    InferenceQueue           queue,
+    OcrEngine                ocr,
+    TranslateService         translate,
+    InpaintService           inpaintSvc,
     ILogger<InferenceWorker> logger
 ) : BackgroundService
 {
@@ -23,6 +24,7 @@ public sealed class InferenceWorker(
                 {
                     OcrJob       j => await RunOcrAsync(j, ct),
                     TranslateJob j => await RunTranslateAsync(j, ct),
+                    InpaintJob   j => await RunInpaintAsync(j, ct),
                     _              => throw new NotSupportedException($"Unknown job type: {job.GetType().Name}"),
                 };
                 job.Tcs.TrySetResult(result);
@@ -59,5 +61,14 @@ public sealed class InferenceWorker(
         var result = await translate.TranslateAsync(job.Text, job.Engine, ct);
         sw.Stop();
         return new TranslateResponse(result ?? "", sw.ElapsedMilliseconds);
+    }
+
+    private async Task<byte[]> RunInpaintAsync(InpaintJob job, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        var result = await Task.Run(() => inpaintSvc.InpaintPage(job.ImagePng, job.Bubbles, job.MaskDilate), ct);
+        sw.Stop();
+        logger.LogDebug("[Inpaint] Page inpainted in {Ms} ms", sw.ElapsedMilliseconds);
+        return result;
     }
 }
