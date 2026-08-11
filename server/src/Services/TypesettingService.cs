@@ -150,31 +150,53 @@ public sealed class TypesettingService
     /// </summary>
     public byte[] WhiteFillWithMask(byte[] imagePng, byte[] maskPng)
     {
-        using var bitmap  = SKBitmap.Decode(imagePng)?.Copy(SKColorType.Bgra8888);
+        using var srcDecoded = SKBitmap.Decode(imagePng);
+        if (srcDecoded is null) return imagePng;
+        using var bitmap = srcDecoded.Copy(SKColorType.Bgra8888);
         if (bitmap is null) return imagePng;
 
-        using var decoded = SKBitmap.Decode(maskPng);
-        if (decoded is null) return imagePng;
+        using var maskDecoded = SKBitmap.Decode(maskPng);
+        if (maskDecoded is null) return imagePng;
 
-        bool needResize = decoded.Width != bitmap.Width || decoded.Height != bitmap.Height;
-        using var resized = needResize
-            ? decoded.Resize(new SKSizeI(bitmap.Width, bitmap.Height), new SKSamplingOptions(SKFilterMode.Linear))
-            : null;
-
-        using var mask = ((resized ?? decoded)!).Copy(SKColorType.Bgra8888);
-
-        int n = bitmap.Width * bitmap.Height;
-        unsafe
+        bool needResize = maskDecoded.Width != bitmap.Width || maskDecoded.Height != bitmap.Height;
+        SKBitmap? resized = null;
+        try
         {
-            byte* ip = (byte*)bitmap.GetPixels();
-            byte* mp = (byte*)mask.GetPixels();
-            for (int i = 0; i < n; i++, ip += 4, mp += 4)
-                if (mp[2] > 127) { ip[0] = ip[1] = ip[2] = 255; } // BGRA — R = offset 2
-        }
+            if (needResize)
+            {
+                resized = maskDecoded.Resize(
+                    new SKSizeI(bitmap.Width, bitmap.Height),
+                    new SKSamplingOptions(SKFilterMode.Linear));
+                if (resized is null) return imagePng; // resize failed — skip rather than out-of-bounds read
+            }
 
-        using var image = SKImage.FromBitmap(bitmap);
-        using var data  = image.Encode(SKEncodedImageFormat.Png, 95);
-        return data.ToArray();
+            using var mask = (resized ?? maskDecoded).Copy(SKColorType.Bgra8888);
+            if (mask is null) return imagePng;
+
+            int w = bitmap.Width, h = bitmap.Height;
+            int imgRowBytes  = bitmap.RowBytes;
+            int maskRowBytes = mask.RowBytes;
+            unsafe
+            {
+                byte* ip = (byte*)bitmap.GetPixels().ToPointer();
+                byte* mp = (byte*)mask.GetPixels().ToPointer();
+                for (int y = 0; y < h; y++)
+                {
+                    byte* iRow = ip + (nint)y * imgRowBytes;
+                    byte* mRow = mp + (nint)y * maskRowBytes;
+                    for (int x = 0; x < w; x++)
+                    {
+                        if (mRow[x * 4 + 2] > 127) // BGRA — R = offset 2
+                            iRow[x * 4] = iRow[x * 4 + 1] = iRow[x * 4 + 2] = 255;
+                    }
+                }
+            }
+
+            using var image = SKImage.FromBitmap(bitmap);
+            using var data  = image.Encode(SKEncodedImageFormat.Png, 95);
+            return data.ToArray();
+        }
+        finally { resized?.Dispose(); }
     }
 
     /// <summary>
@@ -201,7 +223,7 @@ public sealed class TypesettingService
     /// </summary>
     /// <param name="imagePng">Full-page PNG bytes.</param>
     /// <param name="blocks">Text blocks to erase (typically TextSeg blocks outside speech bubbles).</param>
-    /// <param name="dilate">Kernel radius for morphological dilation applied to the mask (swallows anti-aliased edges).</param>
+    /// <param name="dilate">Structuring-element size (px) for morphological dilation applied to the mask (swallows anti-aliased edges).</param>
     public byte[] TeleaInpaintBlocks(byte[] imagePng, IReadOnlyList<BubbleBox> blocks, int dilate = 5)
     {
         if (blocks.Count == 0) return imagePng;
@@ -232,7 +254,8 @@ public sealed class TypesettingService
         using var result = new Mat();
         Cv2.Inpaint(src, mask, result, inpaintRadius: 3, InpaintMethod.Telea);
 
-        Cv2.ImEncode(".png", result, out var bytes);
+        if (!Cv2.ImEncode(".png", result, out var bytes) || bytes.Length == 0)
+            return imagePng;
         return bytes;
     }
 

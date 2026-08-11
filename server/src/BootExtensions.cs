@@ -223,9 +223,16 @@ public sealed class BootBackgroundService(
                   ? v
                   : TextSegDefaultUrl;
 
-        logger.LogInformation("[Boot] Downloading TextSeg model from {Url}", url);
-        Directory.CreateDirectory(ms.TextSeg.Dir);
-        await ModelDownloader.EnsureAsync(http, url, dest, $"TextSeg/{fileName}", ct: ct);
+        try
+        {
+            logger.LogInformation("[Boot] Downloading TextSeg model from {Url}", url);
+            Directory.CreateDirectory(ms.TextSeg.Dir);
+            await ModelDownloader.EnsureAsync(http, url, dest, $"TextSeg/{fileName}", ct: ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[Boot] TextSeg model download failed; text-segmentation will be unavailable.");
+        }
     }
 
     private static async Task DownloadDictionaryAsync(

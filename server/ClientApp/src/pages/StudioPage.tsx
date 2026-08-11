@@ -132,8 +132,9 @@ export function StudioPage() {
       try {
         const boxes = await getJobTextSegBlocks(params.id);
         setTextSegBoxes(boxes);
-      } catch {
+      } catch (err) {
         setShowTextSeg(false);
+        setActionError(err instanceof Error ? err.message : "Failed to load TextSeg blocks");
       } finally {
         setIsLoadingTextSeg(false);
       }
@@ -871,9 +872,10 @@ export function StudioPage() {
                           {(box, i) => {
                             const isSelected = () => selectedTextSegIndex() === i();
                             return (
-                              <div
+                              <button
+                                type="button"
                                 onClick={() => setSelectedTextSegIndex(isSelected() ? null : i())}
-                                class={`group flex cursor-pointer items-center gap-1 border-b border-slate-100 px-2 py-1.5 transition-colors ${
+                                class={`group flex w-full cursor-pointer items-center gap-1 border-b border-slate-100 px-2 py-1.5 text-left transition-colors ${
                                   isSelected()
                                     ? "border-l-2 border-l-orange-400 bg-orange-50"
                                     : "hover:bg-slate-50"
@@ -885,15 +887,18 @@ export function StudioPage() {
                                 <span class="flex-1 truncate text-[10px] text-slate-500">
                                   {box.w}×{box.h} @ {box.x},{box.y}
                                 </span>
-                                <button
+                                <span
+                                  role="button"
+                                  tabIndex={0}
                                   onClick={(e) => { e.stopPropagation(); void handleDeleteTextSeg(i()); }}
-                                  class="invisible shrink-0 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-500 group-hover:visible"
+                                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); void handleDeleteTextSeg(i()); } }}
+                                  class="invisible shrink-0 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-500 group-hover:visible group-focus-within:visible focus-visible:visible"
                                   title="Delete TextSeg block"
                                   aria-label="Delete TextSeg block"
                                 >
                                   <Trash2 class="h-3 w-3" />
-                                </button>
-                              </div>
+                                </span>
+                              </button>
                             );
                           }}
                         </For>

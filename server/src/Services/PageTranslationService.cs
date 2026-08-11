@@ -134,53 +134,74 @@ public sealed class PageTranslationService(
         // Primary: TextSeg blocks (catches all text including narration/SFX boxes
         //          that lie outside detected speech bubbles).
         // Fallback: bubble boxes (when TextSeg is unavailable).
-        IReadOnlyList<BubbleBox> ocrRegions = textSegResult?.TextBlocks.Count > 0
+        IReadOnlyList<BubbleBox> rawRegions = textSegResult?.TextBlocks.Count > 0
             ? textSegResult.TextBlocks
             : bubbles;
 
-        log?.Invoke(new("log", $"OCR: reading {ocrRegions.Count} text region(s)...", "ocr", 0.15));
+        // When TextSeg produces multiple blocks that all map to the same speech
+        // bubble (e.g. two rows of dialogue in one balloon), grouping them first
+        // prevents duplicate overlapping translations for that bubble.  Each group
+        // shares a single typesetting target; their OCR crops are processed
+        // independently then their text is joined before translation.
+        var regionGroups = rawRegions
+            .Select(r => (region: r, typesetBox: GetTypesettingBox(r, bubbles)))
+            .GroupBy(
+                t => t.typesetBox,
+                t => t.region,
+                BubbleBoxComparer.Instance)
+            .ToList();
+
+        log?.Invoke(new("log", $"OCR: reading {rawRegions.Count} text region(s) in {regionGroups.Count} group(s)...", "ocr", 0.15));
 
         var translations = new List<BubbleTranslation>();
 
-        for (int i = 0; i < ocrRegions.Count; i++)
+        for (int gi = 0; gi < regionGroups.Count; gi++)
         {
             ct.ThrowIfCancellationRequested();
 
-            var region = ocrRegions[i];
+            var typesetBox = regionGroups[gi].Key;
+            var groupRegions = regionGroups[gi].ToList();
 
-            log?.Invoke(new("log", $"Reading region {i + 1}/{ocrRegions.Count}...",
-                "ocr", 0.15 + 0.30 * (double)i / ocrRegions.Count));
-            progress.Report(new("ocr", 0.15 + 0.30 * (double)i / ocrRegions.Count));
+            log?.Invoke(new("log", $"Reading group {gi + 1}/{regionGroups.Count} ({groupRegions.Count} region(s))...",
+                "ocr", 0.15 + 0.30 * (double)gi / regionGroups.Count));
+            progress.Report(new("ocr", 0.15 + 0.30 * (double)gi / regionGroups.Count));
 
-            var cropped = CropBubble(imagePng, region, padding: 0.05f);
-
-            var ocrTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-            await queue.Writer.WriteAsync(new OcrJob(cropped, "none", ocrTcs), ct);
-
-            OcrResponse ocrResult;
-            try   { ocrResult = (OcrResponse)await ocrTcs.Task; }
-            catch (Exception ex)
+            // OCR each region in the group independently, then join the text.
+            var sourceParts = new List<string>();
+            for (int ri = 0; ri < groupRegions.Count; ri++)
             {
-                logger.LogWarning(ex, "OCR failed for region {I} — skipping", i);
-                var fallbackBox = GetTypesettingBox(region, bubbles);
-                await LogBubbleAsync(jobId, i, fallbackBox, "", "");
-                continue;
+                var region  = groupRegions[ri];
+                var cropped = CropBubble(imagePng, region, padding: 0.05f);
+
+                var ocrTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+                await queue.Writer.WriteAsync(new OcrJob(cropped, "none", ocrTcs), ct);
+
+                OcrResponse ocrResult;
+                try   { ocrResult = (OcrResponse)await ocrTcs.Task; }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "OCR failed for group {GI} region {RI} — skipping region", gi, ri);
+                    continue;
+                }
+
+                var part = ocrResult.Text?.Trim() ?? "";
+                if (!string.IsNullOrEmpty(part))
+                    sourceParts.Add(part);
             }
 
-            var sourceText = ocrResult.Text?.Trim() ?? "";
+            var sourceText = string.Join("\n", sourceParts);
             if (string.IsNullOrEmpty(sourceText))
             {
-                log?.Invoke(new("log", $"Region {i + 1}: no text found",
-                    "ocr", 0.15 + 0.30 * (double)(i + 1) / ocrRegions.Count));
-                var emptyBox = GetTypesettingBox(region, bubbles);
-                await LogBubbleAsync(jobId, i, emptyBox, "", "");
+                log?.Invoke(new("log", $"Group {gi + 1}: no text found",
+                    "ocr", 0.15 + 0.30 * (double)(gi + 1) / regionGroups.Count));
+                await LogBubbleAsync(jobId, gi, typesetBox, "", "");
                 continue;
             }
 
             // ── Translate ─────────────────────────────────────────────────────
-            log?.Invoke(new("log", $"Translating region {i + 1}: \"{sourceText[..Math.Min(20, sourceText.Length)]}\"...",
-                "translating", 0.45 + 0.20 * (double)i / ocrRegions.Count));
-            progress.Report(new("translating", 0.45 + 0.20 * (double)i / ocrRegions.Count));
+            log?.Invoke(new("log", $"Translating group {gi + 1}: \"{sourceText[..Math.Min(20, sourceText.Length)]}\"...",
+                "translating", 0.45 + 0.20 * (double)gi / regionGroups.Count));
+            progress.Report(new("translating", 0.45 + 0.20 * (double)gi / regionGroups.Count));
 
             var translateTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             await queue.Writer.WriteAsync(new TranslateJob(sourceText, modelSettings.Current.PreferredTranslationEngine, translateTcs), ct);
@@ -193,20 +214,14 @@ public sealed class PageTranslationService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Translation failed for region {I} — using source text", i);
+                logger.LogWarning(ex, "Translation failed for group {GI} — using source text", gi);
                 translated = sourceText;
             }
 
-            // Find the best typesetting box: use a detected bubble that contains
-            // this text region's centre, otherwise use the text region itself.
-            // This means narration/SFX text outside any bubble uses the TextSeg
-            // block as the placement target, while speech-bubble text gets the
-            // larger, better-shaped bubble box.
-            var typesetBox = GetTypesettingBox(region, bubbles);
             if (!string.IsNullOrEmpty(translated))
                 translations.Add(new BubbleTranslation(typesetBox, sourceText, translated));
 
-            await LogBubbleAsync(jobId, i, typesetBox, sourceText, translated);
+            await LogBubbleAsync(jobId, gi, typesetBox, sourceText, translated);
         }
 
         // ── 3. Inpaint — erase text ink using TextSeg pixel mask ─────────────
@@ -346,8 +361,7 @@ public sealed class PageTranslationService(
                 // Prefer the cached TextSeg pixel mask (ink-only erasure) over
                 // rectangle fills.  The mask was saved during the original pipeline
                 // run; re-loading it avoids a redundant ONNX inference pass.
-                var cachedMask = await LoadTextSegMaskAsync(jobId);
-                var preSegRerender = cachedMask is not null ? new TextSegResult(cachedMask, []) : null;
+                var preSegRerender = await LoadCachedTextSegAsync(jobId, ct);
                 var freshInpainted = await RunInpaintAsync(
                     originalPng, allBubbleFills.ConvertAll(t => t.Box), ct, preSegRerender);
                 await File.WriteAllBytesAsync(inpaintedPath, freshInpainted, ct);
@@ -421,8 +435,7 @@ public sealed class PageTranslationService(
 
             // Load cached TextSeg pixel mask so manual re-inpaint also uses
             // precision ink erasure rather than blunt rectangle fills.
-            var cachedMaskInpaint = await LoadTextSegMaskAsync(jobId);
-            var preSegInpaint     = cachedMaskInpaint is not null ? new TextSegResult(cachedMaskInpaint, []) : null;
+            var preSegInpaint = await LoadCachedTextSegAsync(jobId, ct);
 
             var inpaintedPng = allBubbleFills.Count > 0 || preSegInpaint is not null
                 ? await RunInpaintAsync(originalPng, allBubbleFills.ConvertAll(t => t.Box), ct, preSegInpaint)
@@ -481,13 +494,13 @@ public sealed class PageTranslationService(
         var engine = modelSettings.Current.PreferredInpaintEngine;
         if (engine is "auto" or "lama" && inpaintSvc.IsReady)
         {
-            // Pixel-accurate path: use pre-computed mask or run TextSeg now.
-            if (preSeg is not null || textSegSvc.IsReady)
+            // Pixel-accurate path: use pre-computed mask (non-empty) or run TextSeg now.
+            if (preSeg?.Mask is { Length: > 0 } || (preSeg is null && textSegSvc.IsReady))
             {
                 byte[] textMaskPng;
-                if (preSeg is not null)
+                if (preSeg?.Mask is { Length: > 0 } existingMask)
                 {
-                    textMaskPng = preSeg.Mask; // reuse mask from detection step
+                    textMaskPng = existingMask; // reuse mask from detection step
                 }
                 else
                 {
@@ -787,6 +800,43 @@ public sealed class PageTranslationService(
         return File.Exists(maskPath) ? await File.ReadAllBytesAsync(maskPath) : null;
     }
 
+    /// <summary>
+    /// Loads the cached TextSeg mask and block list written by <see cref="TranslatePageAsync"/>.
+    /// Returns <c>null</c> when the mask file is absent (TextSeg was not run for this job).
+    /// </summary>
+    private async Task<TextSegResult?> LoadCachedTextSegAsync(string jobId, CancellationToken ct = default)
+    {
+        var maskPath = Path.Combine(config.JobsDir, jobId, "textseg_mask.png");
+        if (!File.Exists(maskPath)) return null;
+
+        var mask = await File.ReadAllBytesAsync(maskPath, ct);
+
+        var blocks = new List<BubbleBox>();
+        var blocksPath = Path.Combine(config.JobsDir, jobId, "textseg_blocks.json");
+        if (File.Exists(blocksPath))
+        {
+            try
+            {
+                var json = await File.ReadAllTextAsync(blocksPath, ct);
+                var raw  = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(json);
+                if (raw is not null)
+                    foreach (var el in raw)
+                        blocks.Add(new BubbleBox(
+                            el.GetProperty("x").GetInt32(),
+                            el.GetProperty("y").GetInt32(),
+                            el.GetProperty("w").GetInt32(),
+                            el.GetProperty("h").GetInt32(),
+                            1f));
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "[Rerender] Failed to load cached TextSeg blocks for job {JobId} — Telea pass will be skipped", jobId);
+            }
+        }
+
+        return new TextSegResult(mask, blocks);
+    }
+
     private static byte[] CropBubble(byte[] imagePng, BubbleBox box, float padding)
     {
         using var src = SKBitmap.Decode(imagePng);
@@ -811,4 +861,25 @@ public sealed class PageTranslationService(
         using var data = img.Encode(SKEncodedImageFormat.Png, 95);
         return data.ToArray();
     }
+}
+
+/// <summary>
+/// Equality comparer for <see cref="BubbleBox"/> that treats two boxes as
+/// identical when their rounded integer coordinates match.  Used to group
+/// TextSeg blocks that map to the same typesetting target.
+/// </summary>
+file sealed class BubbleBoxComparer : IEqualityComparer<BubbleBox>
+{
+    public static readonly BubbleBoxComparer Instance = new();
+
+    public bool Equals(BubbleBox? a, BubbleBox? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return (int)a.X == (int)b.X && (int)a.Y == (int)b.Y
+            && (int)a.Width == (int)b.Width && (int)a.Height == (int)b.Height;
+    }
+
+    public int GetHashCode(BubbleBox box) =>
+        HashCode.Combine((int)box.X, (int)box.Y, (int)box.Width, (int)box.Height);
 }
