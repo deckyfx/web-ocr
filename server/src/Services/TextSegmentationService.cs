@@ -149,8 +149,9 @@ public sealed class TextSegmentationService(ILogger<TextSegmentationService> log
         canvas.Clear(new SKColor(LetterboxGray, LetterboxGray, LetterboxGray));
         using var resized = src.Resize(
             new SKImageInfo(newW, newH, SKColorType.Bgra8888, SKAlphaType.Opaque),
-            new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None));
-        if (resized is not null) canvas.DrawBitmap(resized, padLeft, padTop);
+            new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None))
+            ?? throw new InvalidOperationException($"Failed to resize source image to {newW}×{newH}.");
+        canvas.DrawBitmap(resized, padLeft, padTop);
         return bmp;
     }
 
