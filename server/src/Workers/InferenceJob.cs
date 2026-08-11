@@ -20,3 +20,16 @@ public record InpaintJob(
     int                          MaskDilate,
     TaskCompletionSource<object> Tcs
 ) : InferenceJob(Tcs);
+
+public record TextSegJob(
+    byte[]                       ImagePng,
+    TaskCompletionSource<object> Tcs
+) : InferenceJob(Tcs);
+
+public record InpaintWithMaskJob(
+    byte[]                       ImagePng,
+    byte[]                       TextMaskPng,
+    IReadOnlyList<BubbleBox>     Bubbles,
+    int                          MaskDilate,
+    TaskCompletionSource<object> Tcs
+) : InferenceJob(Tcs);

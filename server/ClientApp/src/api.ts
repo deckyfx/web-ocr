@@ -339,3 +339,17 @@ export function jobInpaintedUrl(id: string): string {
 export function jobResultUrl(id: string): string {
   return `/api/portal/jobs/${id}/result`;
 }
+
+export type TextSegBox = { x: number; y: number; w: number; h: number };
+
+export async function getJobTextSegBlocks(id: string): Promise<TextSegBox[]> {
+  const r = await fetch(`/api/portal/jobs/${id}/textseg-blocks`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<TextSegBox[]>;
+}
+
+export async function deleteTextSegBlock(id: string, index: number): Promise<TextSegBox[]> {
+  const r = await fetch(`/api/portal/jobs/${id}/textseg-blocks/${index}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<TextSegBox[]>;
+}

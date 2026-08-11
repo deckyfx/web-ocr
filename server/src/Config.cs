@@ -7,6 +7,7 @@ public sealed record AppConfig(
     string TranslateModelsDir,
     string InpaintModelsDir,
     string BubbleModelsDir,
+    string TextSegModelsDir,
     string DictDir,
     string DatabasePath,
     string DeeplApiKey
@@ -41,9 +42,10 @@ public sealed record AppConfig(
             SocketPath:        Env("SOCKET_PATH"),
             OcrModelsDir:      Env("OCR_MODELS_DIR")       ?? Path.Combine(root, "models", "ocr"),
             TranslateModelsDir: Env("TRANSLATE_MODELS_DIR") ?? Path.Combine(root, "models", "translate"),
-            InpaintModelsDir:  Env("INPAINT_MODELS_DIR")   ?? Path.Combine(root, "models", "inpaint"),
-            BubbleModelsDir:   Env("BUBBLE_MODELS_DIR")    ?? Path.Combine(root, "models", "bubble"),
-            DictDir:           Env("DICT_DIR")              ?? Path.Combine(root, "models", "jdict"),
+            InpaintModelsDir:  Env("INPAINT_MODELS_DIR")    ?? Path.Combine(root, "models", "inpaint"),
+            BubbleModelsDir:   Env("BUBBLE_MODELS_DIR")     ?? Path.Combine(root, "models", "bubble"),
+            TextSegModelsDir:  Env("TEXT_SEG_MODELS_DIR")   ?? Path.Combine(root, "models", "textseg"),
+            DictDir:           Env("DICT_DIR")               ?? Path.Combine(root, "models", "jdict"),
             DatabasePath:      Env("DATABASE_URL")          ?? Path.Combine(root, "ocr.db"),
             DeeplApiKey:       Env("DEEPL_API_KEY")         ?? ""
         );

@@ -1,4 +1,6 @@
+using OpenCvSharp;
 using SkiaSharp;
+using CvScalar = OpenCvSharp.Scalar;
 
 namespace WebOcrServer;
 
@@ -142,6 +144,62 @@ public sealed class TypesettingService
     }
 
     /// <summary>
+    /// Erases text ink by writing white into every pixel that is bright in <paramref name="maskPng"/>.
+    /// More precise than <see cref="WhiteFillAll"/> — fills only the actual text pixels, not
+    /// entire bounding boxes, so bubble outlines and backgrounds are preserved.
+    /// </summary>
+    public byte[] WhiteFillWithMask(byte[] imagePng, byte[] maskPng)
+    {
+        using var srcDecoded = SKBitmap.Decode(imagePng);
+        if (srcDecoded is null) return imagePng;
+        using var bitmap = srcDecoded.Copy(SKColorType.Bgra8888);
+        if (bitmap is null) return imagePng;
+
+        using var maskDecoded = SKBitmap.Decode(maskPng);
+        if (maskDecoded is null) return imagePng;
+
+        bool needResize = maskDecoded.Width != bitmap.Width || maskDecoded.Height != bitmap.Height;
+        SKBitmap? resized = null;
+        try
+        {
+            if (needResize)
+            {
+                resized = maskDecoded.Resize(
+                    new SKSizeI(bitmap.Width, bitmap.Height),
+                    new SKSamplingOptions(SKFilterMode.Linear));
+                if (resized is null) return imagePng; // resize failed — skip rather than out-of-bounds read
+            }
+
+            using var mask = (resized ?? maskDecoded).Copy(SKColorType.Bgra8888);
+            if (mask is null) return imagePng;
+
+            int w = bitmap.Width, h = bitmap.Height;
+            int imgRowBytes  = bitmap.RowBytes;
+            int maskRowBytes = mask.RowBytes;
+            unsafe
+            {
+                byte* ip = (byte*)bitmap.GetPixels().ToPointer();
+                byte* mp = (byte*)mask.GetPixels().ToPointer();
+                for (int y = 0; y < h; y++)
+                {
+                    byte* iRow = ip + (nint)y * imgRowBytes;
+                    byte* mRow = mp + (nint)y * maskRowBytes;
+                    for (int x = 0; x < w; x++)
+                    {
+                        if (mRow[x * 4 + 2] > 127) // BGRA — R = offset 2
+                            iRow[x * 4] = iRow[x * 4 + 1] = iRow[x * 4 + 2] = 255;
+                    }
+                }
+            }
+
+            using var image = SKImage.FromBitmap(bitmap);
+            using var data  = image.Encode(SKEncodedImageFormat.Png, 95);
+            return data.ToArray();
+        }
+        finally { resized?.Dispose(); }
+    }
+
+    /// <summary>
     /// Removes text from a single bubble region. Used for per-bubble re-inpaint.
     /// </summary>
     public byte[] WhiteFillBubble(byte[] imagePng, BubbleBox box)
@@ -154,6 +212,51 @@ public sealed class TypesettingService
         using var image = SKImage.FromBitmap(bitmap);
         using var data  = image.Encode(SKEncodedImageFormat.Png, 95);
         return data.ToArray();
+    }
+
+    /// <summary>
+    /// Erases text in the given blocks using OpenCV's Telea inpainting algorithm.
+    /// Each block's bounding box is used as the inpaint mask; Telea reconstructs the
+    /// background from the pixels immediately surrounding each block, so it naturally
+    /// fills dark narration boxes with dark and white speech-bubble interiors with white —
+    /// without needing a separate per-pixel text mask for those regions.
+    /// </summary>
+    /// <param name="imagePng">Full-page PNG bytes.</param>
+    /// <param name="blocks">Text blocks to erase (typically TextSeg blocks outside speech bubbles).</param>
+    /// <param name="dilate">Structuring-element size (px) for morphological dilation applied to the mask (swallows anti-aliased edges).</param>
+    public byte[] TeleaInpaintBlocks(byte[] imagePng, IReadOnlyList<BubbleBox> blocks, int dilate = 5)
+    {
+        if (blocks.Count == 0) return imagePng;
+
+        using var src = Cv2.ImDecode(imagePng, ImreadModes.Color);
+        if (src.Empty()) return imagePng;
+
+        using var mask = new Mat(src.Rows, src.Cols, MatType.CV_8UC1, new CvScalar(0));
+
+        foreach (var block in blocks)
+        {
+            int x = Math.Max(0, (int)block.X);
+            int y = Math.Max(0, (int)block.Y);
+            int w = Math.Min(src.Cols - x, (int)block.Width);
+            int h = Math.Min(src.Rows - y, (int)block.Height);
+            if (w > 0 && h > 0)
+                Cv2.Rectangle(mask, new Rect(x, y, w, h), new CvScalar(255), thickness: -1);
+        }
+
+        if (dilate > 0)
+        {
+            using var kernel = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(dilate, dilate));
+            Cv2.Dilate(mask, mask, kernel);
+        }
+
+        if (Cv2.CountNonZero(mask) == 0) return imagePng;
+
+        using var result = new Mat();
+        Cv2.Inpaint(src, mask, result, inpaintRadius: 3, InpaintMethod.Telea);
+
+        if (!Cv2.ImEncode(".png", result, out var bytes) || bytes.Length == 0)
+            return imagePng;
+        return bytes;
     }
 
     // ── Private inpaint helpers ────────────────────────────────────────────────

@@ -23,12 +23,17 @@ public sealed class BootState
     public bool DictionaryReady { get => _dictionaryReady; set => _dictionaryReady = value; }
 
     // Optional models — only relevant when enabled in ModelSettingsStore
+    private volatile bool _textSegReady;
+    private volatile bool _textSegEnabled;
+
     public bool InpaintReady    { get => _inpaintReady;    set => _inpaintReady = value; }
     public bool BubbleReady     { get => _bubbleReady;     set => _bubbleReady = value; }
+    public bool TextSegReady    { get => _textSegReady;    set => _textSegReady = value; }
 
     /// <summary>Mirrors the enabled flag from settings so /health can distinguish "disabled" from "not yet ready".</summary>
     public bool InpaintEnabled  { get => _inpaintEnabled;  set => _inpaintEnabled = value; }
     public bool BubbleEnabled   { get => _bubbleEnabled;   set => _bubbleEnabled = value; }
+    public bool TextSegEnabled  { get => _textSegEnabled;  set => _textSegEnabled = value; }
 
     /// <summary>True once OCR and Translate are both initialized. /health returns "ok" or "degraded" from here.</summary>
     public bool IsReady         { get => _isReady;         set => _isReady = value; }
@@ -106,6 +111,7 @@ public static class ServiceExtensions
         builder.Services.AddSingleton<BubbleDetectionService>();
         builder.Services.AddSingleton<TypesettingService>();
         builder.Services.AddSingleton<InpaintService>();
+        builder.Services.AddSingleton<TextSegmentationService>();
         builder.Services.AddSingleton<PageTranslationService>();
 
         // Blazor with Interactive Server mode (required for IJSRuntime / JS Interop)

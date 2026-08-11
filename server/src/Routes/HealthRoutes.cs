@@ -24,15 +24,20 @@ public static class HealthRoutes
                     string.IsNullOrWhiteSpace(ms.Bubble.Repo) ? "(not configured)" : ms.Bubble.Repo,
                     boot.BubbleReady,
                     Enabled: boot.BubbleEnabled),
+                ["text_seg"] = new(
+                    string.IsNullOrWhiteSpace(ms.TextSeg.Repo) ? "(not configured)" : ms.TextSeg.Repo,
+                    boot.TextSegReady,
+                    Enabled: boot.TextSegEnabled),
             };
 
             // "degraded" if any enabled model hasn't finished loading
             bool optionalsMissing =
                 !boot.DictionaryReady ||
-                (ms.Ocr.Enabled       && !boot.OcrReady)       ||
+                (ms.Ocr.Enabled       && !boot.OcrReady)        ||
                 (ms.Translate.Enabled && !boot.TranslateReady)  ||
                 (boot.InpaintEnabled  && !boot.InpaintReady)    ||
-                (boot.BubbleEnabled   && !boot.BubbleReady);
+                (boot.BubbleEnabled   && !boot.BubbleReady)     ||
+                (boot.TextSegEnabled  && !boot.TextSegReady);
 
             return Results.Ok(new HealthResponse(
                 Status:                      boot.IsReady ? (optionalsMissing ? "degraded" : "ok") : "starting",

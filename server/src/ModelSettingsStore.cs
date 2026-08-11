@@ -40,6 +40,7 @@ public sealed class AllModelSettings
     public ModelEntry Translate { get; set; } = new();
     public ModelEntry Inpaint   { get; set; } = new();
     public ModelEntry Bubble    { get; set; } = new();
+    public ModelEntry TextSeg   { get; set; } = new();
 
     /// <summary>
     /// Default translation engine for requests that don't specify one.
@@ -145,6 +146,7 @@ public sealed class ModelSettingsStore
                 Translate = current.Translate,
                 Inpaint   = current.Inpaint,
                 Bubble    = current.Bubble,
+                TextSeg   = current.TextSeg,
                 PreferredTranslationEngine = engine,
                 PreferredInpaintEngine     = current.PreferredInpaintEngine,
             };
@@ -179,6 +181,7 @@ public sealed class ModelSettingsStore
                 Translate = current.Translate,
                 Inpaint   = current.Inpaint,
                 Bubble    = current.Bubble,
+                TextSeg   = current.TextSeg,
                 PreferredTranslationEngine = current.PreferredTranslationEngine,
                 PreferredInpaintEngine     = engine,
             };
@@ -237,6 +240,15 @@ public sealed class ModelSettingsStore
                 Enabled = EvBool("BUBBLE_MODEL_ENABLED", false),
                 Files   = Ev("BUBBLE_MODEL_FILES") ?? "detector-v4-s_int8.onnx",
             },
+            TextSeg = new ModelEntry
+            {
+                // zyddnys/manga-image-translator — MIT, 94.6 MB; pixel-level text segmentation.
+                // Uses a direct GitHub release URL rather than HuggingFace (no Repo needed).
+                Repo    = Ev("TEXT_SEG_MODEL_REPO")  ?? "",
+                Dir     = config.TextSegModelsDir,
+                Enabled = EvBool("TEXT_SEG_MODEL_ENABLED", false),
+                Files   = Ev("TEXT_SEG_MODEL_FILES") ?? "comictextdetector.pt.onnx",
+            },
             PreferredInpaintEngine =
                 Ev("INPAINT_ENGINE") ?? "auto",
         };
@@ -268,6 +280,7 @@ public sealed class ModelSettingsStore
             Translate = MergeEntry(env.Translate,  file.Translate,  "TRANSLATE_MODEL_REPO", "TRANSLATE_MODELS_DIR", "TRANSLATE_MODEL_ENABLED", "TRANSLATE_MODEL_FILES"),
             Inpaint   = MergeEntry(env.Inpaint,    file.Inpaint,    "INPAINT_MODEL_REPO",   "INPAINT_MODELS_DIR",   "INPAINT_MODEL_ENABLED",   "INPAINT_MODEL_FILES"),
             Bubble    = MergeEntry(env.Bubble,     file.Bubble,     "BUBBLE_MODEL_REPO",    "BUBBLE_MODELS_DIR",    "BUBBLE_MODEL_ENABLED",    "BUBBLE_MODEL_FILES"),
+            TextSeg   = MergeEntry(env.TextSeg,    file.TextSeg,    "TEXT_SEG_MODEL_REPO",  "TEXT_SEG_MODELS_DIR",  "TEXT_SEG_MODEL_ENABLED",  "TEXT_SEG_MODEL_FILES"),
             // Env wins; fall back to file (only if non-empty), then the env-derived default.
             // IsNullOrWhiteSpace guards against whitespace-only env vars being treated as set.
             PreferredTranslationEngine =

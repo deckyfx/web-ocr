@@ -1,6 +1,7 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import type { TranslationBubble } from "../types";
+import type { TextSegBox } from "../api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,6 +83,16 @@ export interface BubbleCanvasProps {
   onDraw: (x: number, y: number, w: number, h: number) => void;
   /** Called when the rotation handle is dragged; degrees, not normalised. Stage 3 only. */
   onRotate?: (bubbleIndex: number, rotation: number) => void;
+  /**
+   * Optional TextSeg text-block boxes to show as a read-only dashed orange
+   * overlay.  Rendered beneath the editable bubble rects so they don't
+   * interfere with pointer events.
+   */
+  overlayBoxes?: TextSegBox[];
+  /** Index into overlayBoxes that is currently selected (highlighted in the sidebar). */
+  selectedTextSegIndex?: number | null;
+  /** When false, bubble bounding boxes are hidden. Default true. */
+  showBubbles?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -447,6 +458,31 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
         style={{ cursor: svgCursor() }}
         onMouseDown={handleSvgMouseDown}
       >
+        {/* TextSeg text-block overlay — dashed orange, non-interactive */}
+        <Show when={(props.overlayBoxes?.length ?? 0) > 0}>
+          <For each={props.overlayBoxes}>
+            {(box, i) => {
+              const tl = () => toSvg(box.x,         box.y);
+              const br = () => toSvg(box.x + box.w, box.y + box.h);
+              const isSelected = () => props.selectedTextSegIndex === i();
+              return (
+                <rect
+                  x={tl().x}
+                  y={tl().y}
+                  width={Math.max(0, br().x - tl().x)}
+                  height={Math.max(0, br().y - tl().y)}
+                  fill={isSelected() ? "rgba(255,120,0,0.18)" : "rgba(255,120,0,0.07)"}
+                  stroke={isSelected() ? "#ea6800" : "#f97316"}
+                  stroke-width={isSelected() ? "2.5" : "1.5"}
+                  stroke-dasharray="5,3"
+                  style={{ "pointer-events": "none" }}
+                />
+              );
+            }}
+          </For>
+        </Show>
+
+        <Show when={props.showBubbles !== false}>
         <For each={props.bubbles}>
           {(bubble) => {
             const svgRect = () => computeSvgRect(bubble);
@@ -655,6 +691,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
             );
           }}
         </For>
+        </Show>
 
         {/* Draw-mode preview rect */}
         <Show when={getDrawPreview()}>
