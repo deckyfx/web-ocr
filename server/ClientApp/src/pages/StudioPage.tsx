@@ -20,8 +20,10 @@ import {
   addBubble,
   deleteBubble,
   deleteJob,
+  deleteTextSegBlock,
   getJob,
   getJobBubbles,
+  getJobTextSegBlocks,
   inpaintJob,
   jobInpaintedUrl,
   jobOriginalUrl,
@@ -37,7 +39,7 @@ import {
   translateJob,
   updateBubble,
 } from "../api";
-import type { UpdateBubbleBody } from "../api";
+import type { TextSegBox, UpdateBubbleBody } from "../api";
 import { BubbleCanvas } from "../components/BubbleCanvas";
 import { BubbleList } from "../components/BubbleList";
 import { BubbleEditor } from "../components/BubbleEditor";
@@ -111,6 +113,44 @@ export function StudioPage() {
     Number.isNaN(storedPadding) ? 0 : storedPadding,
   );
   const [imageVersion, setImageVersion] = createSignal(0);
+
+  // TextSeg overlay
+  const [showTextSeg, setShowTextSeg] = createSignal(false);
+  const [textSegBoxes, setTextSegBoxes] = createSignal<TextSegBox[]>([]);
+  const [isLoadingTextSeg, setIsLoadingTextSeg] = createSignal(false);
+  const [selectedTextSegIndex, setSelectedTextSegIndex] = createSignal<number | null>(null);
+
+  // Bubble visibility toggle
+  const [showBubbles, setShowBubbles] = createSignal(true);
+
+  async function handleToggleTextSeg(): Promise<void> {
+    const next = !showTextSeg();
+    setShowTextSeg(next);
+    if (!next) { setSelectedTextSegIndex(null); return; }
+    if (textSegBoxes().length === 0) {
+      setIsLoadingTextSeg(true);
+      try {
+        const boxes = await getJobTextSegBlocks(params.id);
+        setTextSegBoxes(boxes);
+      } catch {
+        setShowTextSeg(false);
+      } finally {
+        setIsLoadingTextSeg(false);
+      }
+    }
+  }
+
+  async function handleDeleteTextSeg(index: number): Promise<void> {
+    try {
+      const updated = await deleteTextSegBlock(params.id, index);
+      setTextSegBoxes(updated);
+      if (selectedTextSegIndex() === index) setSelectedTextSegIndex(null);
+      else if ((selectedTextSegIndex() ?? 0) > index)
+        setSelectedTextSegIndex((v) => (v ?? 0) - 1);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to delete TextSeg block");
+    }
+  }
 
   // Derived
   const bubbleList = () => bubbles() ?? [];
@@ -421,6 +461,9 @@ export function StudioPage() {
     selectedIndex: selectedIndex(),
     drawMode: isDrawMode(),
     bubblePadding: bubblePadding(),
+    overlayBoxes: showTextSeg() ? textSegBoxes() : undefined,
+    selectedTextSegIndex: showTextSeg() ? selectedTextSegIndex() : null,
+    showBubbles: showBubbles(),
     onSelect: handleSelectStage1,
     onMove: handleMove,
     onResize: handleResize,
@@ -499,6 +542,7 @@ export function StudioPage() {
         return j.inpaintedImagePath ? (
           <BubbleCanvas
             {...readOnlyCanvasProps()}
+            showBubbles={showBubbles()}
             imageUrl={inpaintedUrl}
             imageWidth={j.originalWidth}
             imageHeight={j.originalHeight}
@@ -610,6 +654,41 @@ export function StudioPage() {
             aria-label="Increase bubble padding"
           >+</button>
         </div>
+
+        {/* TextSeg overlay toggle */}
+        <button
+          onClick={handleToggleTextSeg}
+          disabled={isLoadingTextSeg()}
+          aria-pressed={showTextSeg()}
+          title="Toggle TextSeg text-block overlay (orange dashed = OCR/inpaint regions)"
+          class={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            showTextSeg()
+              ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          <Show when={isLoadingTextSeg()} fallback={
+            <span class="inline-block h-2.5 w-2.5 rounded-sm border-2 border-current" style={{ "border-style": "dashed" }} />
+          }>
+            <RefreshCw class="h-3.5 w-3.5 animate-spin" />
+          </Show>
+          TextSeg
+        </button>
+
+        {/* Bubble box visibility toggle */}
+        <button
+          onClick={() => setShowBubbles((v) => !v)}
+          aria-pressed={showBubbles()}
+          title="Toggle bubble bounding-box overlay (blue = detection boxes)"
+          class={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+            showBubbles()
+              ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+              : "border-slate-200 bg-white text-slate-400 hover:bg-slate-50"
+          }`}
+        >
+          <span class="inline-block h-2.5 w-2.5 rounded-sm border-2 border-current" />
+          Bubbles
+        </button>
 
         {/* Separator */}
         <div class="mx-1 h-5 w-px bg-slate-200" />
@@ -766,7 +845,9 @@ export function StudioPage() {
                 <Show when={stage1Active()}>
                   <div
                     class={`flex flex-col overflow-hidden ${
-                      stage3Active() ? "flex-1 border-b border-slate-200" : "flex-1"
+                      (stage3Active() || (showTextSeg() && textSegBoxes().length > 0))
+                        ? "flex-[1] border-b border-slate-200"
+                        : "flex-1"
                     }`}
                   >
                     <BubbleList
@@ -776,6 +857,49 @@ export function StudioPage() {
                       onAddBubble={() => setIsDrawMode(true)}
                     />
                   </div>
+
+                  {/* TextSeg block management list */}
+                  <Show when={showTextSeg() && textSegBoxes().length > 0}>
+                    <div class={`flex flex-[1] flex-col overflow-hidden ${stage3Active() ? "border-b border-slate-200" : ""}`}>
+                      <div class="flex shrink-0 items-center gap-1 border-b border-slate-100 px-3 py-2">
+                        <span class="flex-1 text-xs font-semibold uppercase tracking-wide text-orange-600">
+                          TextSeg ({textSegBoxes().length})
+                        </span>
+                      </div>
+                      <div class="flex-1 overflow-y-auto">
+                        <For each={textSegBoxes()}>
+                          {(box, i) => {
+                            const isSelected = () => selectedTextSegIndex() === i();
+                            return (
+                              <div
+                                onClick={() => setSelectedTextSegIndex(isSelected() ? null : i())}
+                                class={`group flex cursor-pointer items-center gap-1 border-b border-slate-100 px-2 py-1.5 transition-colors ${
+                                  isSelected()
+                                    ? "border-l-2 border-l-orange-400 bg-orange-50"
+                                    : "hover:bg-slate-50"
+                                }`}
+                              >
+                                <span class={`font-mono text-[10px] font-medium shrink-0 ${isSelected() ? "text-orange-600" : "text-slate-400"}`}>
+                                  #{i()}
+                                </span>
+                                <span class="flex-1 truncate text-[10px] text-slate-500">
+                                  {box.w}×{box.h} @ {box.x},{box.y}
+                                </span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); void handleDeleteTextSeg(i()); }}
+                                  class="invisible shrink-0 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-500 group-hover:visible"
+                                  title="Delete TextSeg block"
+                                  aria-label="Delete TextSeg block"
+                                >
+                                  <Trash2 class="h-3 w-3" />
+                                </button>
+                              </div>
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
                 </Show>
 
                 {/* Stage 3 section: text overlay list */}

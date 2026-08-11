@@ -11,6 +11,7 @@ public sealed class InferenceWorker(
     OcrEngine                ocr,
     TranslateService         translate,
     InpaintService           inpaintSvc,
+    TextSegmentationService  textSegSvc,
     ILogger<InferenceWorker> logger
 ) : BackgroundService
 {
@@ -22,10 +23,12 @@ public sealed class InferenceWorker(
             {
                 object result = job switch
                 {
-                    OcrJob       j => await RunOcrAsync(j, ct),
-                    TranslateJob j => await RunTranslateAsync(j, ct),
-                    InpaintJob   j => await RunInpaintAsync(j, ct),
-                    _              => throw new NotSupportedException($"Unknown job type: {job.GetType().Name}"),
+                    OcrJob              j => await RunOcrAsync(j, ct),
+                    TranslateJob        j => await RunTranslateAsync(j, ct),
+                    InpaintJob          j => await RunInpaintAsync(j, ct),
+                    TextSegJob          j => await RunTextSegAsync(j, ct),
+                    InpaintWithMaskJob  j => await RunInpaintWithMaskAsync(j, ct),
+                    _                     => throw new NotSupportedException($"Unknown job type: {job.GetType().Name}"),
                 };
                 job.Tcs.TrySetResult(result);
             }
@@ -69,6 +72,26 @@ public sealed class InferenceWorker(
         var result = await Task.Run(() => inpaintSvc.InpaintPage(job.ImagePng, job.Bubbles, job.MaskDilate), ct);
         sw.Stop();
         logger.LogDebug("[Inpaint] Page inpainted in {Ms} ms", sw.ElapsedMilliseconds);
+        return result;
+    }
+
+    private async Task<TextSegResult> RunTextSegAsync(TextSegJob job, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        var result = await Task.Run(() => textSegSvc.SegmentText(job.ImagePng), ct);
+        sw.Stop();
+        logger.LogDebug("[TextSeg] Segmented text in {Ms} ms; {Count} text block(s)",
+            sw.ElapsedMilliseconds, result.TextBlocks.Count);
+        return result;
+    }
+
+    private async Task<byte[]> RunInpaintWithMaskAsync(InpaintWithMaskJob job, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        var result = await Task.Run(
+            () => inpaintSvc.InpaintPageWithPixelMask(job.ImagePng, job.TextMaskPng, job.Bubbles, job.MaskDilate), ct);
+        sw.Stop();
+        logger.LogDebug("[Inpaint] Pixel-mask inpaint in {Ms} ms", sw.ElapsedMilliseconds);
         return result;
     }
 }

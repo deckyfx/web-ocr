@@ -17,6 +17,7 @@ public sealed class BootBackgroundService(
     DictionaryService       dict,
     BubbleDetectionService  bubble,
     InpaintService          inpaint,
+    TextSegmentationService textSeg,
     IServiceScopeFactory    scopeFactory,
     ILogger<BootBackgroundService> logger) : BackgroundService
 {
@@ -27,14 +28,16 @@ public sealed class BootBackgroundService(
             var ms = modelSettings.Current;
 
             // ── 1. Mirror enabled flags into BootState ────────────────────────
-            bootState.InpaintEnabled = ms.Inpaint.Enabled;
-            bootState.BubbleEnabled  = ms.Bubble.Enabled;
+            bootState.InpaintEnabled  = ms.Inpaint.Enabled;
+            bootState.BubbleEnabled   = ms.Bubble.Enabled;
+            bootState.TextSegEnabled  = ms.TextSeg.Enabled;
 
             // ── 2. Scaffold directories ───────────────────────────────────────
             Directory.CreateDirectory(ms.Ocr.Dir);
             Directory.CreateDirectory(ms.Translate.Dir);
-            if (ms.Inpaint.Enabled) Directory.CreateDirectory(ms.Inpaint.Dir);
-            if (ms.Bubble.Enabled)  Directory.CreateDirectory(ms.Bubble.Dir);
+            if (ms.Inpaint.Enabled)  Directory.CreateDirectory(ms.Inpaint.Dir);
+            if (ms.Bubble.Enabled)   Directory.CreateDirectory(ms.Bubble.Dir);
+            if (ms.TextSeg.Enabled)  Directory.CreateDirectory(ms.TextSeg.Dir);
             var dbDir = Path.GetDirectoryName(config.DatabasePath);
             if (!string.IsNullOrEmpty(dbDir)) Directory.CreateDirectory(dbDir);
 
@@ -57,6 +60,7 @@ public sealed class BootBackgroundService(
             await DownloadHfModelAsync(http, ms.Translate,  "Translate", logger, ct);
             await DownloadHfModelAsync(http, ms.Inpaint,    "Inpaint",   logger, ct);
             await DownloadHfModelAsync(http, ms.Bubble,     "Bubble",    logger, ct);
+            await DownloadTextSegAsync(http, ms, logger, ct);
             await DownloadDictionaryAsync(http, config, logger, ct);
 
             // ── 6. Initialise core services ───────────────────────────────────
@@ -122,6 +126,31 @@ public sealed class BootBackgroundService(
                 }
             }
 
+            if (ms.TextSeg.Enabled)
+            {
+                var modelFile = Path.GetFileName(ms.TextSeg.FileList[0]);
+                var modelPath = Path.Combine(ms.TextSeg.Dir, modelFile);
+                if (File.Exists(modelPath))
+                {
+                    try
+                    {
+                        logger.LogInformation("[Boot] Loading TextSeg (comictextdetector) model...");
+                        textSeg.LoadModel(modelPath);
+                        bootState.TextSegReady = true;
+                        logger.LogInformation("[Boot] TextSeg service ready.");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex,
+                            "[Boot] TextSeg model failed to load — inpainting will use rectangle mask fallback.");
+                    }
+                }
+                else
+                {
+                    logger.LogWarning("[Boot] TextSeg model file not found at {Path}; skipping load.", modelPath);
+                }
+            }
+
             // ── 8. Dictionary (non-fatal) ─────────────────────────────────────
             logger.LogInformation("[Boot] Extracting dictionary...");
             try
@@ -174,6 +203,31 @@ public sealed class BootBackgroundService(
         }
     }
 
+    private const string TextSegDefaultUrl =
+        "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt.onnx";
+
+    /// <summary>
+    /// Download the comictextdetector model from GitHub releases (not HuggingFace).
+    /// Respects <c>TEXT_SEG_MODEL_URL</c> env var for mirror/override.
+    /// </summary>
+    private static async Task DownloadTextSegAsync(
+        HttpClient http, AllModelSettings ms, ILogger logger, CancellationToken ct)
+    {
+        if (!ms.TextSeg.Enabled) return;
+
+        var fileName = Path.GetFileName(ms.TextSeg.FileList[0]);
+        var dest     = Path.Combine(ms.TextSeg.Dir, fileName);
+        if (File.Exists(dest)) return;
+
+        var url = Environment.GetEnvironmentVariable("TEXT_SEG_MODEL_URL") is { Length: > 0 } v
+                  ? v
+                  : TextSegDefaultUrl;
+
+        logger.LogInformation("[Boot] Downloading TextSeg model from {Url}", url);
+        Directory.CreateDirectory(ms.TextSeg.Dir);
+        await ModelDownloader.EnsureAsync(http, url, dest, $"TextSeg/{fileName}", ct: ct);
+    }
+
     private static async Task DownloadDictionaryAsync(
         HttpClient http, AppConfig cfg, ILogger logger, CancellationToken ct)
     {
@@ -204,11 +258,16 @@ public sealed class BootBackgroundService(
             (ms.Translate, "Translate"),
             (ms.Inpaint,   "Inpaint"),
             (ms.Bubble,    "Bubble"),
+            (ms.TextSeg,   "TextSeg"),
         };
 
+        var textSegFile    = ms.TextSeg.Enabled
+            ? Path.Combine(ms.TextSeg.Dir, Path.GetFileName(ms.TextSeg.FileList[0]))
+            : null;
+        bool textSegMissing = textSegFile is not null && !File.Exists(textSegFile);
         var dictFile    = Path.Combine(cfg.DictDir, "jitendex-yomitan.zip");
         bool dictMissing = !File.Exists(dictFile);
-        bool anyMissing  = dictMissing || entries.Any(e =>
+        bool anyMissing  = dictMissing || textSegMissing || entries.Any(e =>
             e.Entry.ShouldDownload &&
             e.Entry.FileList.Any(f => !File.Exists(Path.Combine(e.Entry.Dir, Path.GetFileName(f)))));
 
@@ -226,6 +285,9 @@ public sealed class BootBackgroundService(
                 Console.WriteLine($"[Boot]   {(File.Exists(dest) ? "✓" : "↓")} {label}/{Path.GetFileName(f),-30}  {dest}");
             }
         }
+
+        if (textSegMissing && textSegFile is not null)
+            Console.WriteLine($"[Boot]   ↓ TextSeg/{Path.GetFileName(textSegFile),-26}  {textSegFile}");
 
         if (dictMissing)
             Console.WriteLine($"[Boot]   ↓ Dict/jitendex-yomitan.zip             {dictFile}");

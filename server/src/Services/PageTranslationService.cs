@@ -11,20 +11,24 @@ public record PageTranslationProgress(string Stage, double Progress);
 /// <summary>
 /// Orchestrates the full manga-page translation pipeline:
 /// <list type="number">
-///   <item>Bubble detection (RT-DETR ONNX or whole-image fallback)</item>
-///   <item>OCR (manga-ocr ONNX, via InferenceQueue)</item>
+///   <item>TextSeg (primary driver — precise ink blocks + pixel mask)</item>
+///   <item>Bubble detection (concurrent — provides speech-bubble shapes for typesetting)</item>
+///   <item>OCR per TextSeg block (falls back to bubble boxes when TextSeg unavailable)</item>
 ///   <item>Translation (Opus-MT ONNX, via InferenceQueue)</item>
-///   <item>Inpainting (LaMa ONNX via InferenceQueue, or flood-fill fallback)</item>
-///   <item>Typesetting (SkiaSharp)</item>
+///   <item>Inpainting using TextSeg pixel mask (or flood-fill on bubble boxes as fallback)</item>
+///   <item>Typeset: match each text block to its containing bubble; use block as fallback</item>
 /// </list>
 /// All ONNX work is routed through <see cref="InferenceQueue"/> to keep CPU sessions serialised.
-/// Per-bubble results are persisted to <see cref="PageTranslationLog"/> for analysis.
+/// Per-region results are persisted to <see cref="PageTranslationLog"/> for analysis.
 /// Full job images (original + result) are stored under <see cref="AppConfig.JobsDir"/>.
+/// The TextSeg pixel mask is cached to <c>textseg_mask.png</c> so re-render paths can
+/// reuse it without running the ONNX model again.
 /// </summary>
 public sealed class PageTranslationService(
     BubbleDetectionService          bubbleDetector,
     TypesettingService              typesetter,
     InpaintService                  inpaintSvc,
+    TextSegmentationService         textSegSvc,
     InferenceQueue                  queue,
     AppConfig                       config,
     ModelSettingsStore              modelSettings,
@@ -62,44 +66,93 @@ public sealed class PageTranslationService(
         var relOriginal = Path.Combine("jobs", jobId, "original.png");
         await CreateJobRowAsync(jobId, relOriginal, imgWidth, imgHeight);
 
-        // ── 1. Detect bubbles ─────────────────────────────────────────────────
-        log?.Invoke(new("log", "Detecting speech bubbles...", "detecting", 0.05));
+        // ── 1. TextSeg (primary) + BubbleDetect (secondary, concurrent) ───────
+        // TextSeg → precise per-character ink blocks + pixel mask for inpainting.
+        //           These blocks are the primary OCR regions.
+        // BubbleDetect → speech-bubble bounding boxes used ONLY for typesetting:
+        //                if a TextSeg block's centre falls inside a detected bubble,
+        //                the bubble box is used as the text placement target (better
+        //                shape); otherwise the TextSeg block itself is the target.
+        log?.Invoke(new("log", "Segmenting text regions...", "detecting", 0.05));
         progress.Report(new("detecting", 0.05));
 
-        var bubbles = await Task.Run(() => bubbleDetector.Detect(imagePng), ct);
-        logger.LogInformation("Detected {Count} bubbles", bubbles.Count);
+        // Kick off bubble detection immediately (thread pool, no queue dependency).
+        var bubbleTask = Task.Run(() => bubbleDetector.Detect(imagePng), ct);
 
-        if (bubbles.Count == 0)
+        // Run TextSeg via InferenceQueue.
+        TextSegResult? textSegResult = null;
+        if (textSegSvc.IsReady)
         {
-            // No model loaded or nothing detected — treat whole image as one region.
-            // Reuse imgWidth/imgHeight decoded above to avoid a second SKBitmap.Decode.
-            log?.Invoke(new("log", "No bubbles detected — processing full image as one region", "detecting", 0.12));
+            var segTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await queue.Writer.WriteAsync(new TextSegJob(imagePng, segTcs), ct);
+            textSegResult = (TextSegResult)await segTcs.Task;
+            logger.LogInformation("TextSeg: {Count} text block(s)", textSegResult.TextBlocks.Count);
+        }
+
+        // Cache TextSeg blocks for the Studio overlay and persist pixel mask for
+        // re-render paths so they can reuse it without running the ONNX model again.
+        if (textSegResult is not null)
+        {
+            var blocksJson = System.Text.Json.JsonSerializer.Serialize(
+                textSegResult.TextBlocks.Select(b => new
+                {
+                    x = (int)b.X, y = (int)b.Y,
+                    w = (int)b.Width, h = (int)b.Height,
+                }),
+                new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+                });
+            await File.WriteAllTextAsync(Path.Combine(jobDir, "textseg_blocks.json"), blocksJson, ct);
+
+            if (textSegResult.Mask is { Length: > 0 } mask)
+                await File.WriteAllBytesAsync(Path.Combine(jobDir, "textseg_mask.png"), mask, ct);
+        }
+
+        // Await bubble detection (likely already done while TextSeg was running).
+        var bubbles = await bubbleTask;
+        logger.LogInformation("Detected {Count} bubble(s)", bubbles.Count);
+
+        // Use full image as single bubble fallback only when TextSeg is also unavailable.
+        if (bubbles.Count == 0 && (textSegResult is null || textSegResult.TextBlocks.Count == 0))
+        {
+            log?.Invoke(new("log", "No regions detected — processing full image as one region", "detecting", 0.12));
             if (imgWidth > 0 && imgHeight > 0)
                 bubbles = [new BubbleBox(0, 0, imgWidth, imgHeight, 1f)];
         }
         else
         {
-            log?.Invoke(new("log", $"Found {bubbles.Count} bubble{(bubbles.Count == 1 ? "" : "s")} ✓",
-                "detecting", 0.12, Count: bubbles.Count));
+            var segCount = textSegResult?.TextBlocks.Count ?? 0;
+            log?.Invoke(new("log",
+                $"TextSeg: {segCount} region(s), bubbles: {bubbles.Count} ✓",
+                "detecting", 0.12, Count: segCount));
         }
 
         progress.Report(new("detecting", 0.12));
 
-        // ── 2. OCR + translate each bubble ────────────────────────────────────
+        // ── 2. OCR each text region ───────────────────────────────────────────
+        // Primary: TextSeg blocks (catches all text including narration/SFX boxes
+        //          that lie outside detected speech bubbles).
+        // Fallback: bubble boxes (when TextSeg is unavailable).
+        IReadOnlyList<BubbleBox> ocrRegions = textSegResult?.TextBlocks.Count > 0
+            ? textSegResult.TextBlocks
+            : bubbles;
+
+        log?.Invoke(new("log", $"OCR: reading {ocrRegions.Count} text region(s)...", "ocr", 0.15));
+
         var translations = new List<BubbleTranslation>();
 
-        for (int i = 0; i < bubbles.Count; i++)
+        for (int i = 0; i < ocrRegions.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
 
-            double ocrFrac = (double)(i + 1) / bubbles.Count;
+            var region = ocrRegions[i];
 
-            // ── OCR ───────────────────────────────────────────────────────────
-            log?.Invoke(new("log", $"Reading text: bubble {i + 1} / {bubbles.Count}...",
-                "ocr", 0.15 + 0.30 * (double)i / bubbles.Count));
-            progress.Report(new("ocr", 0.15 + 0.30 * (double)i / bubbles.Count));
+            log?.Invoke(new("log", $"Reading region {i + 1}/{ocrRegions.Count}...",
+                "ocr", 0.15 + 0.30 * (double)i / ocrRegions.Count));
+            progress.Report(new("ocr", 0.15 + 0.30 * (double)i / ocrRegions.Count));
 
-            var cropped = CropBubble(imagePng, bubbles[i], padding: 0.05f);
+            var cropped = CropBubble(imagePng, region, padding: 0.05f);
 
             var ocrTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             await queue.Writer.WriteAsync(new OcrJob(cropped, "none", ocrTcs), ct);
@@ -108,25 +161,26 @@ public sealed class PageTranslationService(
             try   { ocrResult = (OcrResponse)await ocrTcs.Task; }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "OCR failed for bubble {I} — skipping", i);
-                // Persist the bubble geometry so RerenderAsync can still inpaint it.
-                await LogBubbleAsync(jobId, i, bubbles[i], "", "");
+                logger.LogWarning(ex, "OCR failed for region {I} — skipping", i);
+                var fallbackBox = GetTypesettingBox(region, bubbles);
+                await LogBubbleAsync(jobId, i, fallbackBox, "", "");
                 continue;
             }
 
             var sourceText = ocrResult.Text?.Trim() ?? "";
             if (string.IsNullOrEmpty(sourceText))
             {
-                log?.Invoke(new("log", $"Bubble {i + 1}: no text found", "ocr", 0.15 + 0.30 * ocrFrac));
-                // Persist the bubble geometry so RerenderAsync can still inpaint it.
-                await LogBubbleAsync(jobId, i, bubbles[i], "", "");
+                log?.Invoke(new("log", $"Region {i + 1}: no text found",
+                    "ocr", 0.15 + 0.30 * (double)(i + 1) / ocrRegions.Count));
+                var emptyBox = GetTypesettingBox(region, bubbles);
+                await LogBubbleAsync(jobId, i, emptyBox, "", "");
                 continue;
             }
 
             // ── Translate ─────────────────────────────────────────────────────
-            log?.Invoke(new("log", $"Translating bubble {i + 1}...",
-                "translating", 0.45 + 0.20 * (double)i / bubbles.Count));
-            progress.Report(new("translating", 0.45 + 0.20 * (double)i / bubbles.Count));
+            log?.Invoke(new("log", $"Translating region {i + 1}: \"{sourceText[..Math.Min(20, sourceText.Length)]}\"...",
+                "translating", 0.45 + 0.20 * (double)i / ocrRegions.Count));
+            progress.Report(new("translating", 0.45 + 0.20 * (double)i / ocrRegions.Count));
 
             var translateTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             await queue.Writer.WriteAsync(new TranslateJob(sourceText, modelSettings.Current.PreferredTranslationEngine, translateTcs), ct);
@@ -139,41 +193,44 @@ public sealed class PageTranslationService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Translation failed for bubble {I} — using source text", i);
-                translated = sourceText; // graceful fallback: show original text
+                logger.LogWarning(ex, "Translation failed for region {I} — using source text", i);
+                translated = sourceText;
             }
 
+            // Find the best typesetting box: use a detected bubble that contains
+            // this text region's centre, otherwise use the text region itself.
+            // This means narration/SFX text outside any bubble uses the TextSeg
+            // block as the placement target, while speech-bubble text gets the
+            // larger, better-shaped bubble box.
+            var typesetBox = GetTypesettingBox(region, bubbles);
             if (!string.IsNullOrEmpty(translated))
-                translations.Add(new BubbleTranslation(bubbles[i], sourceText, translated));
+                translations.Add(new BubbleTranslation(typesetBox, sourceText, translated));
 
-            // Log each bubble result immediately so partial results survive cancellation
-            await LogBubbleAsync(jobId, i, bubbles[i], sourceText, translated);
+            await LogBubbleAsync(jobId, i, typesetBox, sourceText, translated);
         }
 
-        // ── 3. Inpainting — erase bubble text, save inpainted.png ───────────
-        var inpaintEngine = modelSettings.Current.PreferredInpaintEngine;
-        var inpaintLabel  = inpaintEngine is "auto" or "lama" && inpaintSvc.IsReady ? "LaMa" : "flood-fill";
+        // ── 3. Inpaint — erase text ink using TextSeg pixel mask ─────────────
+        // The TextSeg mask is pixel-accurate (white = text ink) so only actual
+        // character strokes are erased; bubble borders and panel lines are preserved.
+        // Falls back to rectangle white-fill on bubble boxes when TextSeg is unavailable.
+        var inpaintLabel = modelSettings.Current.PreferredInpaintEngine is "auto" or "lama" && inpaintSvc.IsReady
+            ? "LaMa" : "flood-fill";
         log?.Invoke(new("log", $"Removing original text ({inpaintLabel})...", "inpainting", 0.72));
         progress.Report(new("inpainting", 0.72));
 
-        // Inpaint every detected bubble, not just those with a translation —
-        // a bubble may have failed OCR but still needs its background cleaned.
-        var inpaintedPng = await RunInpaintAsync(imagePng, bubbles, ct);
+        var inpaintedPng = await RunInpaintAsync(imagePng, bubbles, ct, textSegResult);
         var inpaintedPath = Path.Combine(jobDir, "inpainted.png");
         await File.WriteAllBytesAsync(inpaintedPath, inpaintedPng, ct);
         var relInpainted = Path.Combine("jobs", jobId, "inpainted.png");
 
-        // ── 4. Typeset — text glyphs only on top of already-inpainted image ──
-        // RenderTextOnly skips the white-fill step; the clean background is
-        // provided by inpainted.png. Swapping a real inpaint model (LaMa etc.)
-        // into step 3 will automatically improve result quality here.
+        // ── 4. Typeset ────────────────────────────────────────────────────────
         log?.Invoke(new("log", "Rendering translated text...", "typesetting", 0.88));
         progress.Report(new("typesetting", 0.88));
 
         var resultPng = await Task.Run(
             () => typesetter.RenderTextOnly(inpaintedPng, translations), ct);
 
-        // ── 5. Persist result image + update job row ──────────────────────────
+        // ── 5. Persist result ─────────────────────────────────────────────────
         var resultPath = Path.Combine(jobDir, "result.png");
         await File.WriteAllBytesAsync(resultPath, resultPng, ct);
         var relResult = Path.Combine("jobs", jobId, "result.png");
@@ -285,10 +342,14 @@ public sealed class PageTranslationService(
 
             if (allBubbleFills.Count > 0)
             {
-                // Regenerate inpainted.png from current bubble positions so moved/
-                // resized boxes are reflected in the clean background layer.
+                // Regenerate inpainted.png.
+                // Prefer the cached TextSeg pixel mask (ink-only erasure) over
+                // rectangle fills.  The mask was saved during the original pipeline
+                // run; re-loading it avoids a redundant ONNX inference pass.
+                var cachedMask = await LoadTextSegMaskAsync(jobId);
+                var preSegRerender = cachedMask is not null ? new TextSegResult(cachedMask, []) : null;
                 var freshInpainted = await RunInpaintAsync(
-                    originalPng, allBubbleFills.ConvertAll(t => t.Box), ct);
+                    originalPng, allBubbleFills.ConvertAll(t => t.Box), ct, preSegRerender);
                 await File.WriteAllBytesAsync(inpaintedPath, freshInpainted, ct);
 
                 var job2 = await db.PageTranslationJobs.FindAsync(jobId);
@@ -356,9 +417,15 @@ public sealed class PageTranslationService(
         await imgLock.WaitAsync(ct);
         try
         {
-            var originalPng   = await File.ReadAllBytesAsync(originalPath, ct);
-            var inpaintedPng = allBubbleFills.Count > 0
-                ? await RunInpaintAsync(originalPng, allBubbleFills.ConvertAll(t => t.Box), ct)
+            var originalPng = await File.ReadAllBytesAsync(originalPath, ct);
+
+            // Load cached TextSeg pixel mask so manual re-inpaint also uses
+            // precision ink erasure rather than blunt rectangle fills.
+            var cachedMaskInpaint = await LoadTextSegMaskAsync(jobId);
+            var preSegInpaint     = cachedMaskInpaint is not null ? new TextSegResult(cachedMaskInpaint, []) : null;
+
+            var inpaintedPng = allBubbleFills.Count > 0 || preSegInpaint is not null
+                ? await RunInpaintAsync(originalPng, allBubbleFills.ConvertAll(t => t.Box), ct, preSegInpaint)
                 : originalPng;
 
             var inpaintedPath = Path.Combine(config.JobsDir, jobId, "inpainted.png");
@@ -377,25 +444,86 @@ public sealed class PageTranslationService(
     // ── Inpaint routing ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// Routes inpainting to the LaMa ONNX model when available and the configured engine
-    /// permits it, otherwise falls back to the BFS flood-fill implementation.
+    /// Routes inpainting to the best available engine:
+    /// <list type="number">
+    ///   <item>TextSeg pixel mask → LaMa (most accurate — ink-only removal)</item>
+    ///   <item>Rectangle mask → LaMa (when TextSeg unavailable)</item>
+    ///   <item>BFS flood-fill (no ONNX)</item>
+    /// </list>
+    /// <paramref name="preSeg"/> lets the caller supply a TextSeg result already computed
+    /// during the detection step, avoiding a redundant second inference pass.
     /// </summary>
-    private async Task<byte[]> RunInpaintAsync(byte[] imagePng, IReadOnlyList<BubbleBox> boxes, CancellationToken ct)
+    private async Task<byte[]> RunInpaintAsync(
+        byte[]                   imagePng,
+        IReadOnlyList<BubbleBox> boxes,
+        CancellationToken        ct,
+        TextSegResult?           preSeg = null)
     {
+        // ── Pass 0: Telea for non-bubble TextSeg blocks ───────────────────────────
+        // TextSeg blocks that fall outside all detected speech bubbles (narration boxes,
+        // SFX on screentones, etc.) aren't handled by LaMa because the pixel mask from
+        // TextSeg only covers text on light backgrounds.  Telea samples the pixels
+        // immediately surrounding each tight TextSeg bounding box, so it naturally
+        // reconstructs the correct background (dark for dark narration panels,
+        // white for white-background SFX) without needing a per-pixel text mask.
+        if (preSeg?.TextBlocks.Count > 0)
+        {
+            var nonBubble = preSeg.TextBlocks
+                .Where(b => !IsInsideAnyBubble(b, boxes))
+                .ToList();
+            if (nonBubble.Count > 0)
+            {
+                logger.LogInformation("[Inpaint] Telea erasing {N} non-bubble block(s)", nonBubble.Count);
+                imagePng = await Task.Run(() => typesetter.TeleaInpaintBlocks(imagePng, nonBubble), ct);
+            }
+        }
+
         var engine = modelSettings.Current.PreferredInpaintEngine;
-        // Positive match: only "auto" or "lama" selects ML model; any unexpected value falls back to flood-fill.
-        // Route through InferenceQueue so LaMa shares the same serialization budget as OCR/translate,
-        // preventing concurrent ONNX sessions from oversubscribing the CPU.
         if (engine is "auto" or "lama" && inpaintSvc.IsReady)
         {
+            // Pixel-accurate path: use pre-computed mask or run TextSeg now.
+            if (preSeg is not null || textSegSvc.IsReady)
+            {
+                byte[] textMaskPng;
+                if (preSeg is not null)
+                {
+                    textMaskPng = preSeg.Mask; // reuse mask from detection step
+                }
+                else
+                {
+                    var segTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    await queue.Writer.WriteAsync(new TextSegJob(imagePng, segTcs), ct);
+                    textMaskPng = ((TextSegResult)await segTcs.Task).Mask;
+                }
+
+                var inpaintTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+                await queue.Writer.WriteAsync(new InpaintWithMaskJob(imagePng, textMaskPng, boxes, MaskDilate: 2, inpaintTcs), ct);
+                return (byte[])await inpaintTcs.Task;
+            }
+
+            // LaMa only — rectangle mask fallback (no TextSeg)
             var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             await queue.Writer.WriteAsync(new InpaintJob(imagePng, boxes, MaskDilate: 4, tcs), ct);
             return (byte[])await tcs.Task;
         }
 
-        // Flood-fill fallback (no ONNX — safe to run on thread pool)
+        // Flood-fill fallback — use TextSeg pixel mask when available for precision,
+        // otherwise fall back to full-rectangle white-fill.
+        if (preSeg?.Mask is not null)
+            return await Task.Run(() => typesetter.WhiteFillWithMask(imagePng, preSeg.Mask), ct);
+
         var fills = boxes.Select(b => new BubbleTranslation(b, "", "")).ToList();
         return await Task.Run(() => typesetter.WhiteFillAll(imagePng, fills), ct);
+    }
+
+    /// <summary>Returns true when a TextSeg block's center point lies inside at least one bubble box.</summary>
+    private static bool IsInsideAnyBubble(BubbleBox block, IReadOnlyList<BubbleBox> bubbles)
+    {
+        float cx = block.X + block.Width  / 2f;
+        float cy = block.Y + block.Height / 2f;
+        return bubbles.Any(b =>
+            cx >= b.X && cx <= b.X + b.Width &&
+            cy >= b.Y && cy <= b.Y + b.Height);
     }
 
     // ── Public helpers used by PortalRoutes ───────────────────────────────────
@@ -627,6 +755,36 @@ public sealed class PageTranslationService(
         {
             logger.LogWarning(ex, "Failed to persist PageTranslationLog for job {JobId} bubble {I}", jobId, index);
         }
+    }
+
+    /// <summary>
+    /// Finds the best typesetting target for a text region.
+    /// If a detected bubble box contains the text region's centre, return that bubble box
+    /// (larger, speech-bubble-shaped target for better text layout).
+    /// Otherwise return the text region itself — covers narration boxes, SFX text, and any
+    /// text that lies outside detected speech bubbles.
+    /// </summary>
+    private static BubbleBox GetTypesettingBox(BubbleBox textRegion, IReadOnlyList<BubbleBox> bubbles)
+    {
+        float cx = textRegion.X + textRegion.Width  / 2f;
+        float cy = textRegion.Y + textRegion.Height / 2f;
+        foreach (var bubble in bubbles)
+        {
+            if (cx >= bubble.X && cx <= bubble.X + bubble.Width &&
+                cy >= bubble.Y && cy <= bubble.Y + bubble.Height)
+                return bubble;
+        }
+        return textRegion;
+    }
+
+    /// <summary>
+    /// Loads the cached TextSeg pixel mask written by <see cref="TranslatePageAsync"/>.
+    /// Returns <see langword="null"/> when no mask file exists (first run or TextSeg was disabled).
+    /// </summary>
+    private async Task<byte[]?> LoadTextSegMaskAsync(string jobId)
+    {
+        var maskPath = Path.Combine(config.JobsDir, jobId, "textseg_mask.png");
+        return File.Exists(maskPath) ? await File.ReadAllBytesAsync(maskPath) : null;
     }
 
     private static byte[] CropBubble(byte[] imagePng, BubbleBox box, float padding)
