@@ -1,8 +1,9 @@
-import { createResource, createSignal, createMemo, Show } from "solid-js";
+import { createResource, createSignal, createMemo, createEffect, onCleanup, Show } from "solid-js";
 import { useParams, useNavigate } from "@solidjs/router";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-solid";
 import {
   addBubble,
+  addTextSegBlock,
   deleteBubble,
   deleteJob,
   deleteTextSegBlock,
@@ -75,6 +76,21 @@ export function StudioPage() {
 
   const [showBubbles, setShowBubbles] = createSignal(true);
 
+  const [isTextSegDrawMode, setIsTextSegDrawMode] = createSignal(false);
+
+  // Escape key cancels draw modes
+  createEffect(() => {
+    if (!isDrawMode() && !isTextSegDrawMode()) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsDrawMode(false);
+        setIsTextSegDrawMode(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    onCleanup(() => window.removeEventListener("keydown", handler));
+  });
+
   async function handleToggleTextSeg(): Promise<void> {
     const next = !showTextSeg();
     setShowTextSeg(next);
@@ -102,6 +118,27 @@ export function StudioPage() {
         setSelectedTextSegIndex((v) => (v ?? 0) - 1);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to delete TextSeg block");
+    }
+  }
+
+  function handleAddTextSeg(): void {
+    if (isTextSegDrawMode()) {
+      setIsTextSegDrawMode(false);
+    } else {
+      setIsTextSegDrawMode(true);
+      setIsDrawMode(false);
+    }
+  }
+
+  async function handleTextSegDraw(x: number, y: number, w: number, h: number): Promise<void> {
+    setIsTextSegDrawMode(false);
+    setActionError(null);
+    try {
+      const updated = await addTextSegBlock(params.id, { x, y, w, h });
+      setTextSegBoxes(updated);
+      setSelectedTextSegIndex(updated.length - 1);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to add TextSeg block");
     }
   }
 
@@ -143,6 +180,10 @@ export function StudioPage() {
     const next = alreadySelected ? null : idx;
     setSelectedIndex(next);
     setPanelContext(next !== null ? "stage3" : null);
+  }
+
+  function handleSelectTextSeg(idx: number | null): void {
+    setSelectedTextSegIndex(idx);
   }
 
   async function handleMove(bubbleIndex: number, dx: number, dy: number): Promise<void> {
@@ -454,12 +495,16 @@ export function StudioPage() {
                 panelContext={panelContext()}
                 selectedIndex={selectedIndex()}
                 bubbleList={bubbleList()}
+                showBubbles={showBubbles()}
                 showTextSeg={showTextSeg()}
                 textSegBoxes={textSegBoxes()}
                 selectedTextSegIndex={selectedTextSegIndex()}
+                isDrawMode={isDrawMode()}
+                isTextSegDrawMode={isTextSegDrawMode()}
                 onSelectStage1={handleSelectStage1}
                 onSelectStage3={handleSelectStage3}
                 onAddBubble={() => setIsDrawMode(true)}
+                onAddTextSeg={handleAddTextSeg}
                 onDeleteTextSeg={handleDeleteTextSeg}
                 setSelectedTextSegIndex={setSelectedTextSegIndex}
               />
@@ -498,10 +543,13 @@ export function StudioPage() {
                         selectedTextSegIndex={selectedTextSegIndex()}
                         showBubbles={showBubbles()}
                         isDrawMode={isDrawMode()}
+                        isTextSegDrawMode={isTextSegDrawMode()}
                         onSelect={stage1Active() ? handleSelectStage1 : handleSelectStage3}
                         onMove={handleMove}
                         onResize={handleResize}
                         onDraw={(x, y, w, h) => { setIsDrawMode(false); void handleDraw(x, y, w, h); }}
+                        onDrawTextSeg={(x, y, w, h) => void handleTextSegDraw(x, y, w, h)}
+                        onSelectTextSeg={handleSelectTextSeg}
                       />
                     </div>
                   </div>
@@ -526,10 +574,13 @@ export function StudioPage() {
                         selectedTextSegIndex={selectedTextSegIndex()}
                         showBubbles={showBubbles()}
                         isDrawMode={isDrawMode()}
+                        isTextSegDrawMode={isTextSegDrawMode()}
                         onSelect={handleSelectStage1}
                         onMove={handleMove}
                         onResize={handleResize}
                         onDraw={(x, y, w, h) => { setIsDrawMode(false); void handleDraw(x, y, w, h); }}
+                        onDrawTextSeg={(x, y, w, h) => void handleTextSegDraw(x, y, w, h)}
+                        onSelectTextSeg={handleSelectTextSeg}
                       />
                     </div>
                   </div>
@@ -551,11 +602,14 @@ export function StudioPage() {
                         selectedTextSegIndex={selectedTextSegIndex()}
                         showBubbles={showBubbles()}
                         isDrawMode={false}
+                        isTextSegDrawMode={false}
                         onSelect={handleSelectStage3}
                         onMove={handleMove}
                         onResize={handleResize}
                         onDraw={() => {}}
+                        onDrawTextSeg={() => {}}
                         onRotate={handleRotateOverlay}
+                        onSelectTextSeg={handleSelectTextSeg}
                       />
                     </div>
                   </div>

@@ -81,5 +81,43 @@ public static class PortalTextSegRoutes
             await File.WriteAllTextAsync(cacheFile, updated);
             return Results.Ok(System.Text.Json.JsonSerializer.Deserialize<object>(updated));
         });
+
+        g.MapPost("/jobs/{id}/textseg-blocks", async (
+            string id, AddTextSegRequest req,
+            PageTranslationService pipeline) =>
+        {
+            var jobDir    = pipeline.GetJobDir(id);
+            Directory.CreateDirectory(jobDir);
+            var cacheFile = Path.Combine(jobDir, "textseg_blocks.json");
+
+            List<System.Text.Json.JsonElement> blocks;
+            if (File.Exists(cacheFile))
+            {
+                var raw = await File.ReadAllTextAsync(cacheFile);
+                blocks = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(raw) ?? [];
+            }
+            else
+            {
+                blocks = [];
+            }
+
+            blocks.Add(System.Text.Json.JsonSerializer.SerializeToElement(new
+            {
+                x = (int)req.X, y = (int)req.Y,
+                w = (int)req.W, h = (int)req.H,
+            }));
+
+            var opts = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+            };
+            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, opts);
+            await File.WriteAllTextAsync(cacheFile, updated);
+
+            var result = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(updated);
+            return Results.Ok(result);
+        });
     }
+
+    internal record AddTextSegRequest(float X, float Y, float W, float H);
 }

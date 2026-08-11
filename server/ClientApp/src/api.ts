@@ -353,3 +353,13 @@ export async function deleteTextSegBlock(id: string, index: number): Promise<Tex
   if (!r.ok) throw new Error(await r.text());
   return r.json() as Promise<TextSegBox[]>;
 }
+
+export async function addTextSegBlock(id: string, box: TextSegBox): Promise<TextSegBox[]> {
+  const r = await fetch(`/api/portal/jobs/${id}/textseg-blocks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ x: box.x, y: box.y, w: box.w, h: box.h }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<TextSegBox[]>;
+}

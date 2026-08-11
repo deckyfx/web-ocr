@@ -40,6 +40,13 @@ type DragDrawing = {
   curImgX: number;
   curImgY: number;
 };
+type DragDrawingTextSeg = {
+  kind: "drawing-textseg";
+  startImgX: number;
+  startImgY: number;
+  curImgX: number;
+  curImgY: number;
+};
 /** Rotation drag: tracks angle in degrees during a rotation handle gesture. */
 type DragRotating = {
   kind: "rotating";
@@ -54,7 +61,7 @@ type DragRotating = {
   /** Live rotation updated on each mousemove. */
   currentRotation: number;
 };
-type DragState = DragNone | DragMoving | DragResizing | DragDrawing | DragRotating;
+type DragState = DragNone | DragMoving | DragResizing | DragDrawing | DragDrawingTextSeg | DragRotating;
 
 interface Layout {
   scale: number;
@@ -70,6 +77,8 @@ export interface BubbleCanvasProps {
   selectedIndex: number | null;
   /** When true the next mousedown on the canvas background starts a draw gesture. */
   drawMode?: boolean;
+  /** When true the next mousedown on the canvas background starts a TextSeg draw gesture. */
+  textSegDrawMode?: boolean;
   /** Additional display-only inset (px in image coords) applied on all sides. Default 0. */
   bubblePadding?: number;
   /**
@@ -81,6 +90,8 @@ export interface BubbleCanvasProps {
   onMove: (bubbleIndex: number, dx: number, dy: number) => void;
   onResize: (bubbleIndex: number, x: number, y: number, w: number, h: number) => void;
   onDraw: (x: number, y: number, w: number, h: number) => void;
+  /** Called when a TextSeg box is drawn on the canvas. */
+  onDrawTextSeg?: (x: number, y: number, w: number, h: number) => void;
   /** Called when the rotation handle is dragged; degrees, not normalised. Stage 3 only. */
   onRotate?: (bubbleIndex: number, rotation: number) => void;
   /**
@@ -93,6 +104,8 @@ export interface BubbleCanvasProps {
   selectedTextSegIndex?: number | null;
   /** When false, bubble bounding boxes are hidden. Default true. */
   showBubbles?: boolean;
+  /** Called when a TextSeg overlay box is clicked. */
+  onSelectTextSeg?: (index: number | null) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +283,17 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
     };
   }
 
+  function getTextSegDrawPreview(): { x: number; y: number; w: number; h: number } | null {
+    const d = drag();
+    if (d.kind !== "drawing-textseg") return null;
+    return {
+      x: Math.min(d.startImgX, d.curImgX),
+      y: Math.min(d.startImgY, d.curImgY),
+      w: Math.abs(d.curImgX - d.startImgX),
+      h: Math.abs(d.curImgY - d.startImgY),
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Global drag handlers
   // ---------------------------------------------------------------------------
@@ -290,6 +314,8 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
       } else if (d.kind === "resizing") {
         setDrag({ ...d, curImgX: pos.x, curImgY: pos.y });
       } else if (d.kind === "drawing") {
+        setDrag({ ...d, curImgX: pos.x, curImgY: pos.y });
+      } else if (d.kind === "drawing-textseg") {
         setDrag({ ...d, curImgX: pos.x, curImgY: pos.y });
       }
     }
@@ -326,6 +352,14 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
       } else {
         props.onSelect(null);
       }
+    } else if (d.kind === "drawing-textseg") {
+      const x = Math.min(d.startImgX, d.curImgX);
+      const y = Math.min(d.startImgY, d.curImgY);
+      const w = Math.abs(d.curImgX - d.startImgX);
+      const h = Math.abs(d.curImgY - d.startImgY);
+      if (w > 5 && h > 5) {
+        props.onDrawTextSeg?.(x, y, w, h);
+      }
     } else if (d.kind === "rotating") {
       props.onRotate?.(d.bubbleIndex, d.currentRotation);
     }
@@ -350,6 +384,12 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
 
   function handleSvgMouseDown(e: MouseEvent): void {
     e.preventDefault();
+    if (props.textSegDrawMode) {
+      const pos = getMouseImgPos(e);
+      setDrag({ kind: "drawing-textseg", startImgX: pos.x, startImgY: pos.y, curImgX: pos.x, curImgY: pos.y });
+      beginDrag();
+      return;
+    }
     if (!props.drawMode) {
       props.onSelect(null);
       return;
@@ -439,7 +479,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
   const svgCursor = () => {
     const d = drag();
     if (d.kind === "moving" || d.kind === "rotating") return "grabbing";
-    if (d.kind === "drawing" || props.drawMode) return "crosshair";
+    if (d.kind === "drawing" || d.kind === "drawing-textseg" || props.drawMode || props.textSegDrawMode) return "crosshair";
     return "default";
   };
 
@@ -458,13 +498,14 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
         style={{ cursor: svgCursor() }}
         onMouseDown={handleSvgMouseDown}
       >
-        {/* TextSeg text-block overlay — dashed orange, non-interactive */}
+        {/* TextSeg text-block overlay */}
         <Show when={(props.overlayBoxes?.length ?? 0) > 0}>
           <For each={props.overlayBoxes}>
             {(box, i) => {
               const tl = () => toSvg(box.x,         box.y);
               const br = () => toSvg(box.x + box.w, box.y + box.h);
               const isSelected = () => props.selectedTextSegIndex === i();
+              const isInteractive = () => props.showBubbles === false && props.onSelectTextSeg;
               return (
                 <rect
                   x={tl().x}
@@ -475,7 +516,13 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                   stroke={isSelected() ? "#ea6800" : "#f97316"}
                   stroke-width={isSelected() ? "2.5" : "1.5"}
                   stroke-dasharray="5,3"
-                  style={{ "pointer-events": "none" }}
+                  style={{ cursor: isInteractive() ? "pointer" : "none", "pointer-events": isInteractive() ? "auto" : "none" }}
+                  onMouseDown={(e) => {
+                    if (!isInteractive()) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    props.onSelectTextSeg!(isSelected() ? null : i());
+                  }}
                 />
               );
             }}
@@ -712,6 +759,31 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                 stroke="#10b981"
                 stroke-width="2"
                 stroke-dasharray="4,2"
+                style={{ "pointer-events": "none" }}
+              />
+            );
+          }}
+        </Show>
+
+        {/* TextSeg draw-mode preview rect */}
+        <Show when={getTextSegDrawPreview()}>
+          {(dr) => {
+            const svgDr = () => {
+              const r = dr();
+              const tl = toSvg(r.x, r.y);
+              const br = toSvg(r.x + r.w, r.y + r.h);
+              return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
+            };
+            return (
+              <rect
+                x={svgDr().x}
+                y={svgDr().y}
+                width={svgDr().w}
+                height={svgDr().h}
+                fill="rgba(249,115,22,0.1)"
+                stroke="#f97316"
+                stroke-width="2"
+                stroke-dasharray="5,3"
                 style={{ "pointer-events": "none" }}
               />
             );

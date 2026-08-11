@@ -24,11 +24,14 @@ interface StageViewProps {
   selectedTextSegIndex: number | null;
   showBubbles: boolean;
   isDrawMode: boolean;
+  isTextSegDrawMode: boolean;
   onSelect: (idx: number | null) => void;
   onMove: (bubbleIndex: number, dx: number, dy: number) => Promise<void>;
   onResize: (bubbleIndex: number, x: number, y: number, w: number, h: number) => Promise<void>;
   onDraw: (x: number, y: number, w: number, h: number) => void;
+  onDrawTextSeg: (x: number, y: number, w: number, h: number) => void;
   onRotate?: (bubbleIndex: number, rotation: number) => Promise<void>;
+  onSelectTextSeg?: (index: number | null) => void;
 }
 
 const NoImagePlaceholder = (label: string, hint: string) => (
@@ -60,6 +63,7 @@ export function StudioStageView(props: StageViewProps): JSX.Element {
     bubbles: props.bubbleList,
     selectedIndex: props.selectedIndex,
     drawMode: props.isDrawMode,
+    textSegDrawMode: props.isTextSegDrawMode,
     bubblePadding: props.bubblePadding,
     overlayBoxes: props.showTextSeg ? props.textSegBoxes : undefined,
     selectedTextSegIndex: props.showTextSeg ? props.selectedTextSegIndex : null,
@@ -68,7 +72,9 @@ export function StudioStageView(props: StageViewProps): JSX.Element {
     onMove: props.onMove,
     onResize: props.onResize,
     onDraw: props.onDraw,
+    onDrawTextSeg: props.onDrawTextSeg,
     showTextOverlay: false,
+    onSelectTextSeg: props.onSelectTextSeg,
   });
 
   const stage3Props = () => ({
