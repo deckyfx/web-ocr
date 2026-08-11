@@ -90,12 +90,15 @@ public sealed class PageTranslationService(
 
         if (textSegResult is not null)
         {
+            var blocks = textSegResult.TextBlocks.Select(b => new TextSegBlock
+            {
+                Id = Guid.NewGuid().ToString("N")[..8],
+                X = (int)b.X, Y = (int)b.Y,
+                W = (int)b.Width, H = (int)b.Height,
+            }).ToList();
+
             var blocksJson = System.Text.Json.JsonSerializer.Serialize(
-                textSegResult.TextBlocks.Select(b => new
-                {
-                    x = (int)b.X, y = (int)b.Y,
-                    w = (int)b.Width, h = (int)b.Height,
-                }),
+                blocks,
                 new System.Text.Json.JsonSerializerOptions
                 {
                     PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,

@@ -41,22 +41,25 @@ public static class PortalTextSegRoutes
             await queue.Writer.WriteAsync(new TextSegJob(imagePng, tcs));
             var seg = (TextSegResult)await tcs.Task;
 
-            var json = System.Text.Json.JsonSerializer.Serialize(
-                seg.TextBlocks.Select(b => new
-                {
-                    x = (int)b.X, y = (int)b.Y,
-                    w = (int)b.Width, h = (int)b.Height,
-                }),
-                new System.Text.Json.JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-                });
+            // Generate blocks with stable IDs
+            var blocks = seg.TextBlocks.Select(b => new TextSegBlock
+            {
+                Id = Guid.NewGuid().ToString("N")[..8],
+                X = (int)b.X, Y = (int)b.Y,
+                W = (int)b.Width, H = (int)b.Height,
+            }).ToList();
+
+            var opts = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+            };
+            var json = System.Text.Json.JsonSerializer.Serialize(blocks, opts);
             await File.WriteAllTextAsync(cacheFile, json);
             return Results.Content(json, "application/json");
         });
 
-        g.MapDelete("/jobs/{id}/textseg-blocks/{index}", async (
-            string id, int index,
+        g.MapDelete("/jobs/{id}/textseg-blocks/{blockId}", async (
+            string id, string blockId,
             AppDbContext db,
             PageTranslationService pipeline) =>
         {
@@ -67,45 +70,11 @@ public static class PortalTextSegRoutes
             if (!File.Exists(cacheFile)) return Results.NotFound();
 
             var raw = await File.ReadAllTextAsync(cacheFile);
-            var blocks = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(raw);
-            if (blocks is null || index < 0 || index >= blocks.Count)
-                return Results.BadRequest(new { error = "Index out of range" });
+            var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw);
+            if (blocks is null) return Results.NotFound();
 
-            blocks.RemoveAt(index);
-
-            var updated = System.Text.Json.JsonSerializer.Serialize(blocks,
-                new System.Text.Json.JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-                });
-            await File.WriteAllTextAsync(cacheFile, updated);
-            return Results.Ok(System.Text.Json.JsonSerializer.Deserialize<object>(updated));
-        });
-
-        g.MapPost("/jobs/{id}/textseg-blocks", async (
-            string id, AddTextSegRequest req,
-            PageTranslationService pipeline) =>
-        {
-            var jobDir    = pipeline.GetJobDir(id);
-            Directory.CreateDirectory(jobDir);
-            var cacheFile = Path.Combine(jobDir, "textseg_blocks.json");
-
-            List<System.Text.Json.JsonElement> blocks;
-            if (File.Exists(cacheFile))
-            {
-                var raw = await File.ReadAllTextAsync(cacheFile);
-                blocks = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(raw) ?? [];
-            }
-            else
-            {
-                blocks = [];
-            }
-
-            blocks.Add(System.Text.Json.JsonSerializer.SerializeToElement(new
-            {
-                x = (int)req.X, y = (int)req.Y,
-                w = (int)req.W, h = (int)req.H,
-            }));
+            var removed = blocks.RemoveAll(b => b.Id == blockId);
+            if (removed == 0) return Results.NotFound();
 
             var opts = new System.Text.Json.JsonSerializerOptions
             {
@@ -113,11 +82,83 @@ public static class PortalTextSegRoutes
             };
             var updated = System.Text.Json.JsonSerializer.Serialize(blocks, opts);
             await File.WriteAllTextAsync(cacheFile, updated);
+            return Results.Ok(blocks);
+        });
 
-            var result = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(updated);
-            return Results.Ok(result);
+        g.MapPost("/jobs/{id}/textseg-blocks", async (
+            string id, AddTextSegRequest req,
+            PageTranslationService pipeline) =>
+        {
+            var jobDir = pipeline.GetJobDir(id);
+            Directory.CreateDirectory(jobDir);
+            var cacheFile = Path.Combine(jobDir, "textseg_blocks.json");
+
+            List<TextSegBlock> blocks;
+            if (File.Exists(cacheFile))
+            {
+                var raw = await File.ReadAllTextAsync(cacheFile);
+                blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw) ?? [];
+            }
+            else
+            {
+                blocks = [];
+            }
+
+            blocks.Add(new TextSegBlock
+            {
+                Id = Guid.NewGuid().ToString("N")[..8],
+                X = (int)req.X, Y = (int)req.Y,
+                W = (int)req.W, H = (int)req.H,
+            });
+
+            var opts = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+            };
+            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, opts);
+            await File.WriteAllTextAsync(cacheFile, updated);
+            return Results.Ok(blocks);
+        });
+
+        g.MapPut("/jobs/{id}/textseg-blocks/{blockId}", async (
+            string id, string blockId, UpdateTextSegRequest req,
+            PageTranslationService pipeline) =>
+        {
+            var cacheFile = Path.Combine(pipeline.GetJobDir(id), "textseg_blocks.json");
+            if (!File.Exists(cacheFile)) return Results.NotFound();
+
+            var raw = await File.ReadAllTextAsync(cacheFile);
+            var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw);
+            if (blocks is null) return Results.NotFound();
+
+            var block = blocks.FirstOrDefault(b => b.Id == blockId);
+            if (block is null) return Results.NotFound();
+
+            if (req.SourceText is not null) block.SourceText = req.SourceText;
+            if (req.TranslatedText is not null) block.TranslatedText = req.TranslatedText;
+
+            var opts = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+            };
+            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, opts);
+            await File.WriteAllTextAsync(cacheFile, updated);
+            return Results.Ok(block);
         });
     }
 
     internal record AddTextSegRequest(float X, float Y, float W, float H);
+    internal record UpdateTextSegRequest(string? SourceText, string? TranslatedText);
+}
+
+/// <summary>TextSeg block stored in textseg_blocks.json.</summary>
+public class TextSegBlock
+{
+    public string Id { get; set; } = "";
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int W { get; set; }
+    public int H { get; set; }
+    public string? SourceText { get; set; }
+    public string? TranslatedText { get; set; }
 }

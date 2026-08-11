@@ -340,7 +340,15 @@ export function jobResultUrl(id: string): string {
   return `/api/portal/jobs/${id}/result`;
 }
 
-export type TextSegBox = { x: number; y: number; w: number; h: number };
+export type TextSegBox = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  sourceText?: string;
+  translatedText?: string;
+};
 
 export async function getJobTextSegBlocks(id: string): Promise<TextSegBox[]> {
   const r = await fetch(`/api/portal/jobs/${id}/textseg-blocks`);

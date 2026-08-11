@@ -28,6 +28,7 @@ import { BubbleEditor } from "../components/BubbleEditor";
 import type { BubbleUpdatePatch } from "../components/BubbleEditor";
 import { TextStyleEditor } from "../components/TextStyleEditor";
 import type { TextStylePatch } from "../components/TextStyleEditor";
+import { TextSegDetail } from "../components/TextSegDetail";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StudioToolbar, STAGE_ORDER } from "../components/StudioToolbar";
 import type { Stage, PanelContext } from "../components/StudioToolbar";
@@ -69,12 +70,12 @@ export function StudioPage() {
   );
   const [imageVersion, setImageVersion] = createSignal(0);
 
-  const [showTextSeg, setShowTextSeg] = createSignal(false);
+  const [showTextSeg, setShowTextSeg] = createSignal(true);
   const [textSegBoxes, setTextSegBoxes] = createSignal<TextSegBox[]>([]);
   const [isLoadingTextSeg, setIsLoadingTextSeg] = createSignal(false);
   const [selectedTextSegIndex, setSelectedTextSegIndex] = createSignal<number | null>(null);
 
-  const [showBubbles, setShowBubbles] = createSignal(true);
+  const [showBubbles, setShowBubbles] = createSignal(false);
 
   const [isTextSegDrawMode, setIsTextSegDrawMode] = createSignal(false);
 
@@ -89,6 +90,17 @@ export function StudioPage() {
     };
     window.addEventListener("keydown", handler);
     onCleanup(() => window.removeEventListener("keydown", handler));
+  });
+
+  // Load TextSeg on mount (since it's shown by default)
+  createEffect(() => {
+    if (showTextSeg() && textSegBoxes().length === 0 && !isLoadingTextSeg()) {
+      setIsLoadingTextSeg(true);
+      getJobTextSegBlocks(params.id)
+        .then(setTextSegBoxes)
+        .catch(() => setShowTextSeg(false))
+        .finally(() => setIsLoadingTextSeg(false));
+    }
   });
 
   async function handleToggleTextSeg(): Promise<void> {
@@ -153,6 +165,18 @@ export function StudioPage() {
   const sortedActiveStages = createMemo(() =>
     [...activeStages()].sort((a, b) => STAGE_ORDER[a] - STAGE_ORDER[b]),
   );
+
+  // Per-stage overlay visibility: bubbles only in original/compose, textseg only in original/inpainted
+  const effectiveShowBubbles = createMemo(() => {
+    if (!showBubbles()) return false;
+    const stages = activeStages();
+    return stages.includes("original") || stages.includes("compose");
+  });
+  const effectiveShowTextSeg = createMemo(() => {
+    if (!showTextSeg()) return false;
+    const stages = activeStages();
+    return stages.includes("original") || stages.includes("inpainted");
+  });
 
   const stage1Active = () => activeStages().includes("original");
   const stage3Active = () => activeStages().includes("compose");
@@ -495,8 +519,8 @@ export function StudioPage() {
                 panelContext={panelContext()}
                 selectedIndex={selectedIndex()}
                 bubbleList={bubbleList()}
-                showBubbles={showBubbles()}
-                showTextSeg={showTextSeg()}
+                showBubbles={effectiveShowBubbles()}
+                showTextSeg={effectiveShowTextSeg()}
                 textSegBoxes={textSegBoxes()}
                 selectedTextSegIndex={selectedTextSegIndex()}
                 isDrawMode={isDrawMode()}
@@ -569,10 +593,10 @@ export function StudioPage() {
                         bubbleList={bubbleList()}
                         selectedIndex={selectedIndex()}
                         bubblePadding={bubblePadding()}
-                        showTextSeg={showTextSeg()}
+                        showTextSeg={effectiveShowTextSeg()}
                         textSegBoxes={textSegBoxes()}
                         selectedTextSegIndex={selectedTextSegIndex()}
-                        showBubbles={showBubbles()}
+                        showBubbles={effectiveShowBubbles()}
                         isDrawMode={isDrawMode()}
                         isTextSegDrawMode={isTextSegDrawMode()}
                         onSelect={handleSelectStage1}
@@ -590,17 +614,17 @@ export function StudioPage() {
                     </div>
                     <div class="flex-1 overflow-hidden">
                       <StudioStageView
-                        stage={sortedActiveStages()[1]!}
+                        stage={sortedActiveStages()[0]!}
                         jobId={params.id}
                         job={j()}
                         imageVersion={imageVersion()}
                         bubbleList={bubbleList()}
                         selectedIndex={selectedIndex()}
                         bubblePadding={bubblePadding()}
-                        showTextSeg={showTextSeg()}
+                        showTextSeg={effectiveShowTextSeg()}
                         textSegBoxes={textSegBoxes()}
                         selectedTextSegIndex={selectedTextSegIndex()}
-                        showBubbles={showBubbles()}
+                        showBubbles={effectiveShowBubbles()}
                         isDrawMode={false}
                         isTextSegDrawMode={false}
                         onSelect={handleSelectStage3}
@@ -631,32 +655,43 @@ export function StudioPage() {
             <Show when={!rightCollapsed()}>
               <aside class="flex w-64 shrink-0 flex-col border-l border-slate-200 bg-white">
                 <Show
-                  when={panelContext() === "stage1"}
+                  when={selectedTextSegIndex() !== null && effectiveShowTextSeg()}
                   fallback={
                     <Show
-                      when={panelContext() === "stage3"}
+                      when={panelContext() === "stage1"}
                       fallback={
-                        <div class="flex flex-1 items-center justify-center p-4 text-center text-xs text-slate-400">
-                          Select a bubble or overlay to edit
-                        </div>
+                        <Show
+                          when={panelContext() === "stage3"}
+                          fallback={
+                            <div class="flex flex-1 items-center justify-center p-4 text-center text-xs text-slate-400">
+                              Select a bubble, overlay, or text segment to edit
+                            </div>
+                          }
+                        >
+                          <TextStyleEditor
+                            bubble={selectedBubble()}
+                            onUpdate={(patch: TextStylePatch) => handleBubbleUpdate(patch as UpdateBubbleBody)}
+                            onDelete={handleBubbleDelete}
+                          />
+                        </Show>
                       }
                     >
-                      <TextStyleEditor
+                      <BubbleEditor
                         bubble={selectedBubble()}
-                        onUpdate={(patch: TextStylePatch) => handleBubbleUpdate(patch as UpdateBubbleBody)}
+                        onUpdate={(patch: BubbleUpdatePatch) => handleBubbleUpdate(patch as UpdateBubbleBody)}
                         onDelete={handleBubbleDelete}
+                        onReocr={handleBubbleReocr}
+                        onRetranslate={handleBubbleRetranslate}
+                        onReinpaint={handleBubbleReinpaint}
+                        onRepatch={handleBubbleRepatch}
                       />
                     </Show>
                   }
                 >
-                  <BubbleEditor
-                    bubble={selectedBubble()}
-                    onUpdate={(patch: BubbleUpdatePatch) => handleBubbleUpdate(patch as UpdateBubbleBody)}
-                    onDelete={handleBubbleDelete}
-                    onReocr={handleBubbleReocr}
-                    onRetranslate={handleBubbleRetranslate}
-                    onReinpaint={handleBubbleReinpaint}
-                    onRepatch={handleBubbleRepatch}
+                  <TextSegDetail
+                    box={textSegBoxes()[selectedTextSegIndex()!]}
+                    index={selectedTextSegIndex()}
+                    onDelete={(idx) => void handleDeleteTextSeg(idx)}
                   />
                 </Show>
               </aside>
