@@ -8,8 +8,6 @@ import {
   Flame,
   ImageOff,
   PaintBucket,
-  PenLine,
-  Plus,
   RefreshCw,
   ScanText,
   Sparkles,

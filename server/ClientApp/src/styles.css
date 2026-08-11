@@ -3,3 +3,30 @@
 body {
   font-family: Inter, system-ui, sans-serif;
 }
+
+/* Global cursor pointer rules for interactive & clickable elements */
+button,
+a,
+select,
+summary,
+[role="button"],
+[tabindex]:not([tabindex="-1"]),
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="file"]::file-selector-button,
+label[for],
+label:has(input),
+.clickable {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+[aria-disabled="true"],
+[disabled] {
+  cursor: not-allowed;
+}
