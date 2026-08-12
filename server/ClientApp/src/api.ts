@@ -346,8 +346,8 @@ export type TextSegBox = {
   y: number;
   w: number;
   h: number;
-  sourceText?: string;
-  translatedText?: string;
+  source_text?: string | null;
+  translated_text?: string | null;
 };
 
 export async function getJobTextSegBlocks(id: string): Promise<TextSegBox[]> {
@@ -362,7 +362,7 @@ export async function deleteTextSegBlock(id: string, index: number): Promise<Tex
   return r.json() as Promise<TextSegBox[]>;
 }
 
-export async function addTextSegBlock(id: string, box: TextSegBox): Promise<TextSegBox[]> {
+export async function addTextSegBlock(id: string, box: Pick<TextSegBox, "x" | "y" | "w" | "h">): Promise<TextSegBox[]> {
   const r = await fetch(`/api/portal/jobs/${id}/textseg-blocks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -98,6 +98,10 @@ public static class PortalActionRoutes
                     }
 
                     await db2.SaveChangesAsync();
+
+                    await PageTranslationService.SyncTextSegBlocksFromLogsAsync(
+                        pipeline.GetJobDir(id), bubbles);
+
                     j = await db2.PageTranslationJobs.FindAsync(id);
                     if (j is not null) { j.Status = "done"; await db2.SaveChangesAsync(); }
                 }
@@ -164,6 +168,10 @@ public static class PortalActionRoutes
                     }
 
                     await db2.SaveChangesAsync();
+
+                    await PageTranslationService.SyncTextSegBlocksFromLogsAsync(
+                        pipeline.GetJobDir(id), bubbles);
+
                     j = await db2.PageTranslationJobs.FindAsync(id);
                     if (j is not null) { j.Status = "done"; await db2.SaveChangesAsync(); }
                 }

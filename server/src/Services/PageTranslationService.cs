@@ -88,22 +88,17 @@ public sealed class PageTranslationService(
             logger.LogInformation("TextSeg: {Count} text block(s)", textSegResult.TextBlocks.Count);
         }
 
+        List<TextSegBlock>? tsBlocks = null;
         if (textSegResult is not null)
         {
-            var blocks = textSegResult.TextBlocks.Select(b => new TextSegBlock
+            tsBlocks = textSegResult.TextBlocks.Select(b => new TextSegBlock
             {
                 Id = Guid.NewGuid().ToString("N")[..8],
                 X = (int)b.X, Y = (int)b.Y,
                 W = (int)b.Width, H = (int)b.Height,
             }).ToList();
 
-            var blocksJson = System.Text.Json.JsonSerializer.Serialize(
-                blocks,
-                new System.Text.Json.JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-                });
-            await File.WriteAllTextAsync(Path.Combine(jobDir, "textseg_blocks.json"), blocksJson, ct);
+            await WriteTextSegBlocksAsync(jobDir, tsBlocks, ct);
 
             if (textSegResult.Mask is { Length: > 0 } mask)
                 await File.WriteAllBytesAsync(Path.Combine(jobDir, "textseg_mask.png"), mask, ct);
@@ -175,7 +170,12 @@ public sealed class PageTranslationService(
 
                 var part = ocrResult.Text?.Trim() ?? "";
                 if (!string.IsNullOrEmpty(part))
+                {
                     sourceParts.Add(part);
+                    // Write OCR text back to the matching TextSeg block for Studio display.
+                    if (tsBlocks is not null)
+                        UpdateTsBlockText(tsBlocks, region, sourceText: part, translatedText: null);
+                }
             }
 
             var sourceText = string.Join("\n", sourceParts);
@@ -208,10 +208,20 @@ public sealed class PageTranslationService(
             }
 
             if (!string.IsNullOrEmpty(translated))
+            {
                 translations.Add(new BubbleTranslation(typesetBox, sourceText, translated));
+                // Propagate translation to every TextSeg block in this group.
+                if (tsBlocks is not null)
+                    foreach (var region in groupRegions)
+                        UpdateTsBlockText(tsBlocks, region, sourceText: null, translatedText: translated);
+            }
 
             await LogBubbleAsync(jobId, gi, typesetBox, sourceText, translated);
         }
+
+        // Persist updated source/translated text back to textseg_blocks.json.
+        if (tsBlocks is not null)
+            await WriteTextSegBlocksAsync(jobDir, tsBlocks, ct);
 
         // ── 3. Inpaint ────────────────────────────────────────────────────────
         var inpaintLabel = modelSettings.Current.PreferredInpaintEngine is "auto" or "lama" && inpaintSvc.IsReady
@@ -241,6 +251,75 @@ public sealed class PageTranslationService(
         progress.Report(new("done", 1.0));
 
         return resultPng;
+    }
+
+    // ── TextSeg block helpers ─────────────────────────────────────────────────
+
+    private static readonly System.Text.Json.JsonSerializerOptions SnakeCaseOpts = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+    };
+
+    /// <summary>Serialize <paramref name="blocks"/> to textseg_blocks.json in the job directory.</summary>
+    internal static async Task WriteTextSegBlocksAsync(
+        string jobDir, List<TextSegBlock> blocks, CancellationToken ct = default)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts);
+        await File.WriteAllTextAsync(Path.Combine(jobDir, "textseg_blocks.json"), json, ct);
+    }
+
+    /// <summary>
+    /// Find the TextSeg block whose coords match <paramref name="region"/> and update its text fields.
+    /// Passing <c>null</c> for either text field leaves it unchanged.
+    /// </summary>
+    internal static void UpdateTsBlockText(
+        List<TextSegBlock> blocks, BubbleBox region,
+        string? sourceText, string? translatedText)
+    {
+        var block = blocks.FirstOrDefault(
+            b => b.X == (int)region.X && b.Y == (int)region.Y);
+        if (block is null) return;
+        if (sourceText     is not null) block.SourceText     = sourceText;
+        if (translatedText is not null) block.TranslatedText = translatedText;
+    }
+
+    /// <summary>
+    /// After a bulk re-OCR or re-translate pass, propagates updated text from
+    /// <paramref name="bubbleLogs"/> back to <c>textseg_blocks.json</c>.
+    /// Each TextSeg block is matched to the bubble log whose bounding box contains its centre point.
+    /// No-ops silently when the JSON file does not exist.
+    /// </summary>
+    internal static async Task SyncTextSegBlocksFromLogsAsync(
+        string jobDir,
+        IReadOnlyList<PageTranslationLog> bubbleLogs,
+        CancellationToken ct = default)
+    {
+        var path = Path.Combine(jobDir, "textseg_blocks.json");
+        if (!File.Exists(path)) return;
+
+        var json   = await File.ReadAllTextAsync(path, ct);
+        var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(json, SnakeCaseOpts);
+        if (blocks is null || blocks.Count == 0) return;
+
+        foreach (var b in bubbleLogs)
+        {
+            float bLeft   = b.BubbleX;
+            float bTop    = b.BubbleY;
+            float bRight  = b.BubbleX + b.BubbleW;
+            float bBottom = b.BubbleY + b.BubbleH;
+
+            foreach (var block in blocks)
+            {
+                float cx = block.X + block.W / 2f;
+                float cy = block.Y + block.H / 2f;
+                if (cx < bLeft || cx > bRight || cy < bTop || cy > bBottom) continue;
+
+                if (b.SourceText     is not null) block.SourceText     = b.SourceText;
+                if (b.TranslatedText is not null) block.TranslatedText = b.TranslatedText;
+            }
+        }
+
+        await WriteTextSegBlocksAsync(jobDir, blocks, ct);
     }
 
     public async Task MarkJobFailedAsync(string jobId, string errorMessage)

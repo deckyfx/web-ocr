@@ -1,4 +1,3 @@
-import { Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { ImageOff } from "lucide-solid";
 import { BubbleCanvas } from "./BubbleCanvas";
@@ -23,14 +22,10 @@ interface StageViewProps {
   textSegBoxes: TextSegBox[];
   selectedTextSegIndex: number | null;
   showBubbles: boolean;
-  isDrawMode: boolean;
   isTextSegDrawMode: boolean;
+  /** Stage 3 bubble selection via canvas click. */
   onSelect: (idx: number | null) => void;
-  onMove: (bubbleIndex: number, dx: number, dy: number) => Promise<void>;
-  onResize: (bubbleIndex: number, x: number, y: number, w: number, h: number) => Promise<void>;
-  onDraw: (x: number, y: number, w: number, h: number) => void;
   onDrawTextSeg: (x: number, y: number, w: number, h: number) => void;
-  onRotate?: (bubbleIndex: number, rotation: number) => Promise<void>;
   onSelectTextSeg?: (index: number | null) => void;
 }
 
@@ -47,46 +42,25 @@ export function StudioStageView(props: StageViewProps): JSX.Element {
   const inpaintedUrl = () => `${jobInpaintedUrl(props.jobId)}?v=${v()}`;
   const resultUrl = () => `${jobResultUrl(props.jobId)}?v=${v()}`;
 
-  const readOnlyProps = () => ({
-    bubbles: props.bubbleList,
-    selectedIndex: null as number | null,
-    drawMode: false,
-    bubblePadding: props.bubblePadding,
-    onSelect: () => {},
-    onMove: () => {},
-    onResize: () => {},
-    onDraw: () => {},
-    showBubbles: props.showBubbles,
-  });
-
   const stage1Props = () => ({
     bubbles: props.bubbleList,
     selectedIndex: props.selectedIndex,
-    drawMode: props.isDrawMode,
     textSegDrawMode: props.isTextSegDrawMode,
     bubblePadding: props.bubblePadding,
     overlayBoxes: props.showTextSeg ? props.textSegBoxes : undefined,
     selectedTextSegIndex: props.showTextSeg ? props.selectedTextSegIndex : null,
-    showBubbles: props.showBubbles,
-    onSelect: props.onSelect,
-    onMove: props.onMove,
-    onResize: props.onResize,
-    onDraw: props.onDraw,
-    onDrawTextSeg: props.onDrawTextSeg,
+    showBubbles: false,
     showTextOverlay: false,
+    onDrawTextSeg: props.onDrawTextSeg,
     onSelectTextSeg: props.onSelectTextSeg,
   });
 
   const stage3Props = () => ({
     bubbles: props.bubbleList,
     selectedIndex: props.selectedIndex,
-    drawMode: false,
     bubblePadding: props.bubblePadding,
+    showBubbles: props.showBubbles,
     onSelect: props.onSelect,
-    onMove: props.onMove,
-    onResize: props.onResize,
-    onDraw: () => {},
-    onRotate: props.onRotate,
     showTextOverlay: true,
   });
 
@@ -104,10 +78,10 @@ export function StudioStageView(props: StageViewProps): JSX.Element {
     case "inpainted":
       return props.job.inpaintedImagePath ? (
         <BubbleCanvas
-          {...readOnlyProps()}
           imageUrl={inpaintedUrl()}
           imageWidth={props.job.originalWidth}
           imageHeight={props.job.originalHeight}
+          showBubbles={false}
         />
       ) : NoImagePlaceholder("No inpainted image", "Run Inpaint on Stage 1 first.");
 
@@ -124,10 +98,10 @@ export function StudioStageView(props: StageViewProps): JSX.Element {
     case "result":
       return props.job.resultImagePath ? (
         <BubbleCanvas
-          {...readOnlyProps()}
           imageUrl={resultUrl()}
           imageWidth={props.job.originalWidth}
           imageHeight={props.job.originalHeight}
+          showBubbles={false}
         />
       ) : NoImagePlaceholder("No result image", "Run Burn Texts on Stage 3 first.");
   }

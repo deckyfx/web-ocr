@@ -1,25 +1,19 @@
 import { Show, For } from "solid-js";
 import { PenLine, Plus, Trash2 } from "lucide-solid";
-import { BubbleList } from "./BubbleList";
 import type { TextSegBox } from "../api";
 import type { TranslationBubble } from "../types";
-import type { PanelContext, Stage } from "./StudioToolbar";
 
 interface LeftPanelProps {
   stage1Active: boolean;
   stage3Active: boolean;
-  panelContext: PanelContext;
+  /** Stage 3 overlay selection (bubble index). */
   selectedIndex: number | null;
   bubbleList: TranslationBubble[];
-  showBubbles: boolean;
   showTextSeg: boolean;
   textSegBoxes: TextSegBox[];
   selectedTextSegIndex: number | null;
-  isDrawMode: boolean;
   isTextSegDrawMode: boolean;
-  onSelectStage1: (idx: number | null) => void;
   onSelectStage3: (idx: number | null) => void;
-  onAddBubble: () => void;
   onAddTextSeg: () => void;
   onDeleteTextSeg: (index: number) => void;
   setSelectedTextSegIndex: (v: number | null) => void;
@@ -29,36 +23,15 @@ export function StudioLeftPanel(props: LeftPanelProps) {
   return (
     <aside class="flex w-52 shrink-0 flex-col border-r border-slate-200 bg-white overflow-hidden">
       {/* Draw mode indicator */}
-      <Show when={props.isDrawMode || props.isTextSegDrawMode}>
-        <div class={`flex items-center gap-2 px-3 py-2 text-xs font-medium ${
-          props.isTextSegDrawMode
-            ? "bg-orange-50 text-orange-700 border-b border-orange-200"
-            : "bg-blue-50 text-blue-700 border-b border-blue-200"
-        }`}>
+      <Show when={props.isTextSegDrawMode}>
+        <div class="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-orange-50 text-orange-700 border-b border-orange-200">
           <PenLine class="h-3.5 w-3.5 animate-pulse" />
-          <span>{props.isTextSegDrawMode ? "Draw TextSeg block" : "Draw bubble"}</span>
+          <span>Draw TextSeg block</span>
           <span class="ml-auto text-[10px] opacity-60">Esc to cancel</span>
         </div>
       </Show>
 
       <Show when={props.stage1Active}>
-        <Show when={props.showBubbles}>
-          <div
-            class={`flex flex-col overflow-hidden ${
-              (props.stage3Active || (props.showTextSeg && props.textSegBoxes.length > 0))
-                ? "flex-[1] border-b border-slate-200"
-                : "flex-1"
-            }`}
-          >
-            <BubbleList
-              bubbles={props.bubbleList}
-              selectedIndex={props.panelContext === "stage1" ? props.selectedIndex : null}
-              onSelect={props.onSelectStage1}
-              onAddBubble={props.onAddBubble}
-            />
-          </div>
-        </Show>
-
         <Show when={props.showTextSeg}>
           <div class={`flex flex-[1] flex-col overflow-hidden ${props.stage3Active ? "border-b border-slate-200" : ""}`}>
             <div class="flex shrink-0 items-center gap-1 border-b border-slate-100 px-3 py-2">
@@ -104,7 +77,7 @@ export function StudioLeftPanel(props: LeftPanelProps) {
                           #{i()}
                         </span>
                         <span class="flex-1 truncate text-[10px] text-slate-500">
-                          {box.w}×{box.h} @ {box.x},{box.y}
+                          {box.source_text ? box.source_text.slice(0, 20) : `${box.w}×${box.h}`}
                         </span>
                         <span
                           role="button"
@@ -146,7 +119,6 @@ export function StudioLeftPanel(props: LeftPanelProps) {
               <For each={props.bubbleList}>
                 {(bubble) => {
                   const isSelected = () =>
-                    props.panelContext === "stage3" &&
                     props.selectedIndex === bubble.bubbleIndex;
                   return (
                     <button

@@ -1,8 +1,7 @@
 import { createResource, createSignal, createMemo, createEffect, onCleanup, Show } from "solid-js";
 import { useParams, useNavigate } from "@solidjs/router";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-solid";
+import { ChevronLeft, ChevronRight } from "lucide-solid";
 import {
-  addBubble,
   addTextSegBlock,
   deleteBubble,
   deleteJob,
@@ -13,25 +12,19 @@ import {
   inpaintJob,
   jobResultUrl,
   redetectJob,
-  reocrBubble,
   reocrJob,
-  repatchBubble,
-  reinpaintBubble,
   rerenderJob,
-  retranslateBubble,
   retranslateJob,
   translateJob,
   updateBubble,
 } from "../api";
 import type { TextSegBox, UpdateBubbleBody } from "../api";
-import { BubbleEditor } from "../components/BubbleEditor";
-import type { BubbleUpdatePatch } from "../components/BubbleEditor";
 import { TextStyleEditor } from "../components/TextStyleEditor";
 import type { TextStylePatch } from "../components/TextStyleEditor";
 import { TextSegDetail } from "../components/TextSegDetail";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StudioToolbar, STAGE_ORDER } from "../components/StudioToolbar";
-import type { Stage, PanelContext } from "../components/StudioToolbar";
+import type { Stage } from "../components/StudioToolbar";
 import { StudioLeftPanel } from "../components/StudioLeftPanel";
 import { StudioStageView } from "../components/StudioStageView";
 import type { PageTranslationJob, TranslationBubble } from "../types";
@@ -48,7 +41,6 @@ export function StudioPage() {
 
   const [selectedIndex, setSelectedIndex] = createSignal<number | null>(null);
   const [activeStages, setActiveStages] = createSignal<Stage[]>(["original"]);
-  const [panelContext, setPanelContext] = createSignal<PanelContext>(null);
   const [leftCollapsed, setLeftCollapsed] = createSignal(false);
   const [rightCollapsed, setRightCollapsed] = createSignal(false);
 
@@ -59,7 +51,6 @@ export function StudioPage() {
   const [isAutoTexts, setIsAutoTexts] = createSignal(false);
   const [isBurning, setIsBurning] = createSignal(false);
 
-  const [isDrawMode, setIsDrawMode] = createSignal(false);
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
   const [isDeleting, setIsDeleting] = createSignal(false);
@@ -76,23 +67,19 @@ export function StudioPage() {
   const [selectedTextSegIndex, setSelectedTextSegIndex] = createSignal<number | null>(null);
 
   const [showBubbles, setShowBubbles] = createSignal(false);
-
   const [isTextSegDrawMode, setIsTextSegDrawMode] = createSignal(false);
 
-  // Escape key cancels draw modes
+  // Escape key cancels TextSeg draw mode
   createEffect(() => {
-    if (!isDrawMode() && !isTextSegDrawMode()) return;
+    if (!isTextSegDrawMode()) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setIsDrawMode(false);
-        setIsTextSegDrawMode(false);
-      }
+      if (e.key === "Escape") setIsTextSegDrawMode(false);
     };
     window.addEventListener("keydown", handler);
     onCleanup(() => window.removeEventListener("keydown", handler));
   });
 
-  // Load TextSeg on mount (since it's shown by default)
+  // Load TextSeg on mount (shown by default)
   createEffect(() => {
     if (showTextSeg() && textSegBoxes().length === 0 && !isLoadingTextSeg()) {
       setIsLoadingTextSeg(true);
@@ -134,12 +121,7 @@ export function StudioPage() {
   }
 
   function handleAddTextSeg(): void {
-    if (isTextSegDrawMode()) {
-      setIsTextSegDrawMode(false);
-    } else {
-      setIsTextSegDrawMode(true);
-      setIsDrawMode(false);
-    }
+    setIsTextSegDrawMode((v) => !v);
   }
 
   async function handleTextSegDraw(x: number, y: number, w: number, h: number): Promise<void> {
@@ -166,7 +148,6 @@ export function StudioPage() {
     [...activeStages()].sort((a, b) => STAGE_ORDER[a] - STAGE_ORDER[b]),
   );
 
-  // Per-stage overlay visibility: bubbles only in original/compose, textseg only in original/inpainted
   const effectiveShowBubbles = createMemo(() => {
     if (!showBubbles()) return false;
     const stages = activeStages();
@@ -192,63 +173,13 @@ export function StudioPage() {
     });
   }
 
-  function handleSelectStage1(idx: number | null): void {
-    const alreadySelected = idx !== null && idx === selectedIndex() && panelContext() === "stage1";
-    const next = alreadySelected ? null : idx;
-    setSelectedIndex(next);
-    setPanelContext(next !== null ? "stage1" : null);
-  }
-
   function handleSelectStage3(idx: number | null): void {
-    const alreadySelected = idx !== null && idx === selectedIndex() && panelContext() === "stage3";
-    const next = alreadySelected ? null : idx;
+    const next = idx !== null && idx === selectedIndex() ? null : idx;
     setSelectedIndex(next);
-    setPanelContext(next !== null ? "stage3" : null);
   }
 
   function handleSelectTextSeg(idx: number | null): void {
     setSelectedTextSegIndex(idx);
-  }
-
-  async function handleMove(bubbleIndex: number, dx: number, dy: number): Promise<void> {
-    const b = bubbleList().find((bbl) => bbl.bubbleIndex === bubbleIndex);
-    if (!b) return;
-    setActionError(null);
-    try {
-      await updateBubble(params.id, bubbleIndex, {
-        bubbleX: b.bubbleX + dx,
-        bubbleY: b.bubbleY + dy,
-        bubbleW: b.bubbleW,
-        bubbleH: b.bubbleH,
-      });
-      refetchBubbles();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to move bubble");
-    }
-  }
-
-  async function handleResize(
-    bubbleIndex: number, x: number, y: number, w: number, h: number,
-  ): Promise<void> {
-    setActionError(null);
-    try {
-      await updateBubble(params.id, bubbleIndex, { bubbleX: x, bubbleY: y, bubbleW: w, bubbleH: h });
-      refetchBubbles();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to resize bubble");
-    }
-  }
-
-  async function handleDraw(x: number, y: number, w: number, h: number): Promise<void> {
-    setActionError(null);
-    try {
-      const b = await addBubble(params.id, { x, y, w, h });
-      await refetchBubbles();
-      setSelectedIndex(b.bubbleIndex);
-      setPanelContext("stage1");
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to add bubble");
-    }
   }
 
   async function handleBubbleUpdate(patch: UpdateBubbleBody): Promise<void> {
@@ -270,7 +201,6 @@ export function StudioPage() {
     try {
       await deleteBubble(params.id, b.bubbleIndex);
       setSelectedIndex(null);
-      setPanelContext(null);
       refetchBubbles();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to delete bubble");
@@ -292,7 +222,6 @@ export function StudioPage() {
       await redetectJob(params.id);
       await pollUntilDone();
       setSelectedIndex(null);
-      setPanelContext(null);
       await refetchBubbles();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Re-detect failed");
@@ -357,7 +286,6 @@ export function StudioPage() {
       await retranslateJob(params.id);
       await pollUntilDone();
       setSelectedIndex(null);
-      setPanelContext(null);
       await refetchBubbles();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Auto Texts failed");
@@ -399,45 +327,19 @@ export function StudioPage() {
     }
   }
 
-  async function handleBubbleReocr(): Promise<void> {
-    const b = selectedBubble();
-    if (!b) return;
-    const updated = await reocrBubble(params.id, b.bubbleIndex);
-    await refetchBubbles();
-    setSelectedIndex(updated.bubbleIndex);
-  }
-
-  async function handleBubbleRetranslate(): Promise<void> {
-    const b = selectedBubble();
-    if (!b) return;
-    const updated = await retranslateBubble(params.id, b.bubbleIndex);
-    await refetchBubbles();
-    setSelectedIndex(updated.bubbleIndex);
-  }
-
-  async function handleBubbleReinpaint(): Promise<void> {
-    const b = selectedBubble();
-    if (!b) return;
-    await reinpaintBubble(params.id, b.bubbleIndex, bubblePadding());
-    setImageVersion((v) => v + 1);
-  }
-
-  async function handleBubbleRepatch(): Promise<void> {
-    const b = selectedBubble();
-    if (!b) return;
-    await repatchBubble(params.id, b.bubbleIndex, bubblePadding());
-    setImageVersion((v) => v + 1);
-  }
-
-  async function handleRotateOverlay(bubbleIndex: number, rotation: number): Promise<void> {
-    setActionError(null);
-    try {
-      await updateBubble(params.id, bubbleIndex, { rotation });
-      refetchBubbles();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to update rotation");
-    }
-  }
+  /** Common props for every StudioStageView instance. */
+  const commonStageProps = () => ({
+    jobId: params.id,
+    job: job()!,
+    imageVersion: imageVersion(),
+    bubbleList: bubbleList(),
+    selectedIndex: selectedIndex(),
+    bubblePadding: bubblePadding(),
+    textSegBoxes: textSegBoxes(),
+    selectedTextSegIndex: selectedTextSegIndex(),
+    onSelect: handleSelectStage3,
+    onSelectTextSeg: handleSelectTextSeg,
+  });
 
   return (
     <div class="flex h-screen flex-col bg-slate-50">
@@ -516,18 +418,13 @@ export function StudioPage() {
               <StudioLeftPanel
                 stage1Active={stage1Active()}
                 stage3Active={stage3Active()}
-                panelContext={panelContext()}
                 selectedIndex={selectedIndex()}
                 bubbleList={bubbleList()}
-                showBubbles={effectiveShowBubbles()}
                 showTextSeg={effectiveShowTextSeg()}
                 textSegBoxes={textSegBoxes()}
                 selectedTextSegIndex={selectedTextSegIndex()}
-                isDrawMode={isDrawMode()}
                 isTextSegDrawMode={isTextSegDrawMode()}
-                onSelectStage1={handleSelectStage1}
                 onSelectStage3={handleSelectStage3}
-                onAddBubble={() => setIsDrawMode(true)}
                 onAddTextSeg={handleAddTextSeg}
                 onDeleteTextSeg={handleDeleteTextSeg}
                 setSelectedTextSegIndex={setSelectedTextSegIndex}
@@ -555,25 +452,12 @@ export function StudioPage() {
                     </div>
                     <div class="flex-1 overflow-hidden">
                       <StudioStageView
+                        {...commonStageProps()}
                         stage={sortedActiveStages()[0]!}
-                        jobId={params.id}
-                        job={j()}
-                        imageVersion={imageVersion()}
-                        bubbleList={bubbleList()}
-                        selectedIndex={selectedIndex()}
-                        bubblePadding={bubblePadding()}
-                        showTextSeg={showTextSeg()}
-                        textSegBoxes={textSegBoxes()}
-                        selectedTextSegIndex={selectedTextSegIndex()}
-                        showBubbles={showBubbles()}
-                        isDrawMode={isDrawMode()}
+                        showTextSeg={effectiveShowTextSeg()}
+                        showBubbles={effectiveShowBubbles()}
                         isTextSegDrawMode={isTextSegDrawMode()}
-                        onSelect={stage1Active() ? handleSelectStage1 : handleSelectStage3}
-                        onMove={handleMove}
-                        onResize={handleResize}
-                        onDraw={(x, y, w, h) => { setIsDrawMode(false); void handleDraw(x, y, w, h); }}
                         onDrawTextSeg={(x, y, w, h) => void handleTextSegDraw(x, y, w, h)}
-                        onSelectTextSeg={handleSelectTextSeg}
                       />
                     </div>
                   </div>
@@ -586,25 +470,12 @@ export function StudioPage() {
                     </div>
                     <div class="flex-1 overflow-hidden">
                       <StudioStageView
+                        {...commonStageProps()}
                         stage={sortedActiveStages()[0]!}
-                        jobId={params.id}
-                        job={j()}
-                        imageVersion={imageVersion()}
-                        bubbleList={bubbleList()}
-                        selectedIndex={selectedIndex()}
-                        bubblePadding={bubblePadding()}
                         showTextSeg={effectiveShowTextSeg()}
-                        textSegBoxes={textSegBoxes()}
-                        selectedTextSegIndex={selectedTextSegIndex()}
                         showBubbles={effectiveShowBubbles()}
-                        isDrawMode={isDrawMode()}
                         isTextSegDrawMode={isTextSegDrawMode()}
-                        onSelect={handleSelectStage1}
-                        onMove={handleMove}
-                        onResize={handleResize}
-                        onDraw={(x, y, w, h) => { setIsDrawMode(false); void handleDraw(x, y, w, h); }}
                         onDrawTextSeg={(x, y, w, h) => void handleTextSegDraw(x, y, w, h)}
-                        onSelectTextSeg={handleSelectTextSeg}
                       />
                     </div>
                   </div>
@@ -614,26 +485,12 @@ export function StudioPage() {
                     </div>
                     <div class="flex-1 overflow-hidden">
                       <StudioStageView
-                        stage={sortedActiveStages()[0]!}
-                        jobId={params.id}
-                        job={j()}
-                        imageVersion={imageVersion()}
-                        bubbleList={bubbleList()}
-                        selectedIndex={selectedIndex()}
-                        bubblePadding={bubblePadding()}
+                        {...commonStageProps()}
+                        stage={sortedActiveStages()[1]!}
                         showTextSeg={effectiveShowTextSeg()}
-                        textSegBoxes={textSegBoxes()}
-                        selectedTextSegIndex={selectedTextSegIndex()}
                         showBubbles={effectiveShowBubbles()}
-                        isDrawMode={false}
                         isTextSegDrawMode={false}
-                        onSelect={handleSelectStage3}
-                        onMove={handleMove}
-                        onResize={handleResize}
-                        onDraw={() => {}}
                         onDrawTextSeg={() => {}}
-                        onRotate={handleRotateOverlay}
-                        onSelectTextSeg={handleSelectTextSeg}
                       />
                     </div>
                   </div>
@@ -658,32 +515,17 @@ export function StudioPage() {
                   when={selectedTextSegIndex() !== null && effectiveShowTextSeg()}
                   fallback={
                     <Show
-                      when={panelContext() === "stage1"}
+                      when={selectedIndex() !== null}
                       fallback={
-                        <Show
-                          when={panelContext() === "stage3"}
-                          fallback={
-                            <div class="flex flex-1 items-center justify-center p-4 text-center text-xs text-slate-400">
-                              Select a bubble, overlay, or text segment to edit
-                            </div>
-                          }
-                        >
-                          <TextStyleEditor
-                            bubble={selectedBubble()}
-                            onUpdate={(patch: TextStylePatch) => handleBubbleUpdate(patch as UpdateBubbleBody)}
-                            onDelete={handleBubbleDelete}
-                          />
-                        </Show>
+                        <div class="flex flex-1 items-center justify-center p-4 text-center text-xs text-slate-400">
+                          Select an overlay or text segment to edit
+                        </div>
                       }
                     >
-                      <BubbleEditor
+                      <TextStyleEditor
                         bubble={selectedBubble()}
-                        onUpdate={(patch: BubbleUpdatePatch) => handleBubbleUpdate(patch as UpdateBubbleBody)}
+                        onUpdate={(patch: TextStylePatch) => handleBubbleUpdate(patch as UpdateBubbleBody)}
                         onDelete={handleBubbleDelete}
-                        onReocr={handleBubbleReocr}
-                        onRetranslate={handleBubbleRetranslate}
-                        onReinpaint={handleBubbleReinpaint}
-                        onRepatch={handleBubbleRepatch}
                       />
                     </Show>
                   }
