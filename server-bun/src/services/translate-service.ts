@@ -64,12 +64,12 @@ export async function loadTranslateModel(): Promise<void> {
   modelBosToken = cfg["decoder_start_token_id"];
   modelEosToken = cfg["eos_token_id"];
 
-  inferenceHandlers.translate = runTranslate;
+  inferenceHandlers.translate = runTranslate as (input: unknown, signal: AbortSignal) => Promise<unknown>;
   bootState.translateReady = true;
   console.log("Translate model loaded.");
 }
 
-async function runTranslate(input: unknown): Promise<TranslateOutput> {
+async function runTranslate(input: unknown, signal?: AbortSignal): Promise<TranslateOutput> {
   if (!input || typeof input !== "object" || typeof (input as TranslateInput).text !== "string") {
     throw new Error("Invalid translate input: text must be a string");
   }
@@ -114,6 +114,7 @@ async function runTranslate(input: unknown): Promise<TranslateOutput> {
   let genIds = [BOS];
 
   for (let step = 0; step < MAX_LEN; step++) {
+    if (signal?.aborted) throw new Error("Inference aborted (timeout)");
     const genTensor = new ort.Tensor("int64", BigInt64Array.from(genIds.map(BigInt)), [1, genIds.length]);
     const decOut = await decoderSession.run({
       input_ids: genTensor,

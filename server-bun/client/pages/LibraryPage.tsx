@@ -71,23 +71,29 @@ export function LibraryPage() {
           {vols.map((vol) => (
             <div
               key={vol.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => setSelectedVolId(vol.id === selectedVolId ? null : vol.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ")
-                  setSelectedVolId(vol.id === selectedVolId ? null : vol.id);
-              }}
-              className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left border-b border-gray-800/50 transition-colors group cursor-pointer ${
-                vol.id === selectedVolId ? "bg-indigo-600/20 text-indigo-300" : "text-gray-300 hover:bg-gray-800"
+              className={`flex items-center border-b border-gray-800/50 group ${
+                vol.id === selectedVolId ? "bg-indigo-600/20" : "hover:bg-gray-800"
               }`}
             >
-              <BookOpen size={13} className="shrink-0 text-gray-500" />
-              <span className="flex-1 truncate">{vol.title}</span>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedVolId(vol.id === selectedVolId ? null : vol.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ")
+                    setSelectedVolId(vol.id === selectedVolId ? null : vol.id);
+                }}
+                className={`flex-1 flex items-center gap-2 px-3 py-2.5 text-sm text-left cursor-pointer min-w-0 ${
+                  vol.id === selectedVolId ? "text-indigo-300" : "text-gray-300"
+                }`}
+              >
+                <BookOpen size={13} className="shrink-0 text-gray-500" />
+                <span className="flex-1 truncate">{vol.title}</span>
+              </div>
               <button
-                onClick={(e) => { e.stopPropagation(); setDeleteVolTarget(vol.id); }}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}
-                className="p-1 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-opacity"
+                onClick={() => setDeleteVolTarget(vol.id)}
+                aria-label={`Delete ${vol.title}`}
+                className="p-1 mr-1 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-opacity"
               >
                 <Trash2 size={12} />
               </button>

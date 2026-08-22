@@ -103,6 +103,12 @@ export function SettingsPage() {
             <Loader2 size={14} className="animate-spin" /> Loading…
           </div>
         </Section>
+      ) : settingsQ.isError ? (
+        <Section title="Translation">
+          <div className="flex items-center gap-2 text-red-400 text-sm">
+            <AlertCircle size={14} /> Failed to load translation settings
+          </div>
+        </Section>
       ) : settings && (
         <Section title="Translation">
           <div className="flex flex-col gap-2 text-sm">

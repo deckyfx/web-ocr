@@ -43,14 +43,15 @@ export async function loadOcrModel(): Promise<void> {
 
   vocab = readFileSync(vocabPath, "utf8").split("\n").map((l) => l.trim());
 
-  inferenceHandlers.ocr = runOcr;
+  inferenceHandlers.ocr = runOcr as (input: unknown, signal: AbortSignal) => Promise<unknown>;
   bootState.ocrReady = true;
   console.log("OCR model loaded.");
 }
 
-async function runOcr(input: unknown): Promise<OcrOutput> {
+async function runOcr(input: unknown, signal?: AbortSignal): Promise<OcrOutput> {
   const { imageBuffer } = input as OcrInput;
   if (!encoderSession || !decoderSession) throw new Error("OCR model not loaded");
+  if (signal?.aborted) throw new Error("Inference aborted (timeout)");
 
   const start = Date.now();
 

@@ -44,14 +44,15 @@ export async function loadTextSegModel(): Promise<void> {
     executionProviders: ["cpu"],
     graphOptimizationLevel: "all",
   });
-  inferenceHandlers["text-seg"] = runTextSeg;
+  inferenceHandlers["text-seg"] = runTextSeg as (input: unknown, signal: AbortSignal) => Promise<unknown>;
   bootState.textSegReady = true;
   console.log("TextSeg model loaded.");
 }
 
-async function runTextSeg(input: unknown): Promise<TextSegOutput> {
+async function runTextSeg(input: unknown, signal?: AbortSignal): Promise<TextSegOutput> {
   const { imageBuffer, origWidth, origHeight, threshold = 0.5 } = input as TextSegInput;
   if (!session) throw new Error("TextSeg model not loaded");
+  if (signal?.aborted) throw new Error("Inference aborted (timeout)");
 
   const start = Date.now();
   const sharp = (await import("sharp")).default;
