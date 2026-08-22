@@ -21,7 +21,8 @@ DELETE FROM `page_translation_jobs` WHERE rowid IN (
         PARTITION BY image_hash
         ORDER BY
           (text_seg_blocks IS NOT NULL) DESC,
-          updated_at DESC
+          updated_at DESC,
+          rowid ASC
       ) rn
     FROM `page_translation_jobs`
   ) WHERE rn > 1

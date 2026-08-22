@@ -7,7 +7,8 @@ DELETE FROM `page_translation_logs` WHERE rowid IN (
         ORDER BY
           (source_text IS NOT NULL) + (translated_text IS NOT NULL) +
           (inpainted_image_path IS NOT NULL) + (patch_image_path IS NOT NULL) DESC,
-          updated_at DESC
+          updated_at DESC,
+          rowid ASC
       ) rn
     FROM `page_translation_logs`
   ) WHERE rn > 1

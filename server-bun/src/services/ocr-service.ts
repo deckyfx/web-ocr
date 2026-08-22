@@ -87,6 +87,7 @@ async function runOcr(input: unknown, signal?: AbortSignal): Promise<OcrOutput> 
   const decoded: number[] = [];
 
   for (let step = 0; step < MAX_LEN; step++) {
+    if (signal?.aborted) throw new Error("Inference aborted (timeout)");
     const idsTensor = new ort.Tensor("int64", BigInt64Array.from(inputIds.map(BigInt)), [1, inputIds.length]);
     const decOut = await decoderSession.run({
       input_ids: idsTensor,

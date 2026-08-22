@@ -97,8 +97,10 @@ export function LibraryPage() {
                 tabIndex={0}
                 onClick={() => setSelectedVolId(vol.id === selectedVolId ? null : vol.id)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ")
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
                     setSelectedVolId(vol.id === selectedVolId ? null : vol.id);
+                  }
                 }}
                 className={`flex-1 flex items-center gap-2 px-3 py-2.5 text-sm text-left cursor-pointer min-w-0 ${
                   vol.id === selectedVolId ? "text-indigo-300" : "text-gray-300"
@@ -132,6 +134,7 @@ export function LibraryPage() {
             <button
               onClick={() => newVolTitle.trim() && createVolMutation.mutate()}
               disabled={createVolMutation.isPending || !newVolTitle.trim()}
+              aria-label="Create volume"
               className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40"
             >
               <Plus size={13} />
@@ -199,6 +202,7 @@ export function LibraryPage() {
                 <button
                   onClick={() => canCreateChapter && createChapterMutation.mutate()}
                   disabled={createChapterMutation.isPending || !canCreateChapter}
+                  aria-label="Create chapter"
                   className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40"
                 >
                   <Plus size={13} />

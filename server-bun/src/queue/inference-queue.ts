@@ -53,8 +53,10 @@ class InferenceQueue {
       while (this.queue.length > 0) {
         const job = this.queue.shift()! as InferenceJob & { _controller?: AbortController };
         const controller = job._controller;
-        // Reject jobs that spent their entire deadline waiting in the queue
-        if (Date.now() - job.enqueuedAt >= JOB_TIMEOUT_MS) {
+        // Reject immediately if the deadline already expired while queued; otherwise
+        // use the remaining budget so total wait + execution never exceeds JOB_TIMEOUT_MS.
+        const remaining = JOB_TIMEOUT_MS - (Date.now() - job.enqueuedAt);
+        if (remaining <= 0) {
           controller?.abort();
           job.reject(new Error(`Inference job timed out after ${JOB_TIMEOUT_MS}ms`));
           continue;
@@ -65,7 +67,7 @@ class InferenceQueue {
           timerId = setTimeout(() => {
             controller?.abort();
             rej(new Error(`Inference job timed out after ${JOB_TIMEOUT_MS}ms`));
-          }, JOB_TIMEOUT_MS);
+          }, remaining);
         });
         try {
           const result = await Promise.race([dispatched, timer]);

@@ -96,7 +96,9 @@ export function JobsPage() {
       )}
 
       {/* Drop zone */}
-      <div
+      <button
+        type="button"
+        aria-label="Upload image by clicking or dropping a file"
         className="mx-4 mt-3 border-2 border-dashed border-gray-700 rounded-xl p-6 text-center
           text-gray-500 text-sm cursor-pointer hover:border-gray-500 hover:text-gray-400 transition-colors"
         onDragOver={(e) => e.preventDefault()}
@@ -110,7 +112,7 @@ export function JobsPage() {
         ) : (
           "Drop an image here or click to upload"
         )}
-      </div>
+      </button>
 
       {/* Jobs list */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -155,12 +157,14 @@ export function JobsPage() {
 
               <button
                 onClick={(e) => { e.stopPropagation(); navigate(`/studio/${job.id}`); }}
+                aria-label="Open studio"
                 className="p-1.5 text-gray-600 hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <ExternalLink size={14} />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setDeleteTarget(job.id); }}
+                aria-label="Delete job"
                 className="p-1.5 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <Trash2 size={14} />
