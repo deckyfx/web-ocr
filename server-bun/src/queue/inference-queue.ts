@@ -9,6 +9,9 @@ export interface InferenceJob<TInput = unknown, TOutput = unknown> {
   reject: (err: Error) => void;
 }
 
+const MAX_QUEUE_DEPTH = 50;
+const JOB_TIMEOUT_MS = 120_000; // 2 minutes per inference job
+
 class InferenceQueue {
   private static instance: InferenceQueue;
   private queue: InferenceJob[] = [];
@@ -20,6 +23,9 @@ class InferenceQueue {
   }
 
   enqueue<TInput, TOutput>(type: InferenceJobType, input: TInput): Promise<TOutput> {
+    if (this.queue.length >= MAX_QUEUE_DEPTH) {
+      return Promise.reject(new Error("Inference queue is full; try again later"));
+    }
     return new Promise<TOutput>((resolve, reject) => {
       this.queue.push({ type, input, resolve: resolve as (r: unknown) => void, reject });
       this.drain();
@@ -32,7 +38,10 @@ class InferenceQueue {
     while (this.queue.length > 0) {
       const job = this.queue.shift()!;
       try {
-        const result = await this.dispatch(job);
+        const timer = new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error(`Inference job timed out after ${JOB_TIMEOUT_MS}ms`)), JOB_TIMEOUT_MS),
+        );
+        const result = await Promise.race([this.dispatch(job), timer]);
         job.resolve(result);
       } catch (err) {
         job.reject(err instanceof Error ? err : new Error(String(err)));

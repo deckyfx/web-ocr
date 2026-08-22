@@ -39,13 +39,13 @@ closed. Every capability maps 1-to-1 to a Node/Bun package.
 2. **`bun:sqlite` is faster than EF Core + SQLite** — native, synchronous where possible,
    zero ORM overhead for hot paths (log inserts, job status polls).
 
-3. **Eden Treaty** — the SolidJS frontend gets end-to-end type safety for every API route
+3. **Eden Treaty** — the React frontend gets end-to-end type safety for every API route
    for free. No more manually keeping TS types in sync with C# DTOs.
 
 4. **`sharp`** — image resize/crop/composite that replaces System.Drawing and SkiaSharp.
    Faster (libvips), smaller Docker layer, better WebP support.
 
-5. **Single process, single language** — Elysia serves the SolidJS SPA, the REST API,
+5. **Single process, single language** — Elysia serves the React SPA, the REST API,
    and SSE streams. No reverse proxy needed in dev.
 
 6. **Smaller Docker image** — no .NET runtime (~200 MB). Bun binary + `node_modules` is
@@ -150,7 +150,7 @@ matching Drizzle's convention) so that `data/ocr.db` can be reused if desired.
 | `JsonNamingPolicy.SnakeCaseLower` | Elysia serializes plain objects — name keys manually in snake_case |
 | `ILogger` | `consola` or `pino` |
 | `DeepL.NET` | `deepl-node` (already in manga-reader) |
-| Blazor admin UI | SolidJS (already the frontend, move into server-bun) |
+| Blazor admin UI | React (already the frontend in server-bun/client/) |
 
 ---
 
@@ -187,14 +187,14 @@ server-bun/
 │   │   ├── dictionary.ts         # Jitendex SQLite + Jisho API
 │   │   └── model-downloader.ts   # @huggingface/hub download
 │   ├── plugins/
-│   │   ├── routeApp.ts           # Serve SolidJS SPA (wildcard)
+│   │   ├── routeApp.ts           # Serve React SPA (wildcard)
 │   │   ├── routePublic.ts        # /health, /ocr, /translate, /analyze
 │   │   ├── routeSettings.ts      # /api/settings
 │   │   ├── routeJobs.ts          # /api/portal/jobs + textseg-blocks
 │   │   ├── routeBubbles.ts       # /api/portal/jobs/{id}/bubbles
 │   │   ├── routeActions.ts       # /api/portal/jobs/{id}/redetect etc.
 │   │   └── routeLibrary.ts       # /api/portal/volumes + chapters
-│   └── public/                   # SolidJS built output (copy from server/wwwroot/js)
+│   └── public/                   # React built output (copy from server/wwwroot/js)
 ├── package.json
 ├── tsconfig.json
 ├── drizzle.config.ts
@@ -260,7 +260,7 @@ Order matters (each depends on the previous for integration testing):
 Port all 40+ routes from `server/src/Routes/*.cs` into Elysia plugins. Most are
 thin wrappers around stores + queue enqueues; the porting is mechanical.
 
-### Phase 4 — Wire SolidJS frontend (½ day)
+### Phase 4 — Wire React frontend (½ day)
 
 - Copy `server/ClientApp/` into `server-bun/client/` (or symlink)
 - Update `vite.config.ts` dev-server proxy from port 3579 → same port (no change if

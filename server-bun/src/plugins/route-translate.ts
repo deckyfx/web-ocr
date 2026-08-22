@@ -23,9 +23,9 @@ export const routeTranslate = new Elysia().post(
       return error(503, { error: "Translate model not ready" });
 
     const result = await inferenceQueue.enqueue<
-      { text: string },
+      { text: string; engine: string },
       { translatedText: string; engine: string; processingTimeMs: number }
-    >("translate", { text });
+    >("translate", { text, engine: resolvedEngine });
 
     OcrStore.insertTranslateLog({
       sourceText: text,

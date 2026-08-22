@@ -126,7 +126,8 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
 
   function commitAndStop(): void {
     const d = drag();
-    if (d.kind === "drawing-textseg") {
+    // Only commit if draw mode is still active — Escape may have cancelled it mid-drag.
+    if (d.kind === "drawing-textseg" && props.textSegDrawMode) {
       const x = Math.min(d.startImgX, d.curImgX);
       const y = Math.min(d.startImgY, d.curImgY);
       const w = Math.abs(d.curImgX - d.startImgX);

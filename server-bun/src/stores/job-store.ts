@@ -7,7 +7,7 @@ import {
   type PageTranslationLog,
   type NewPageTranslationLog,
 } from "@/db/schema";
-import { eq, asc, desc } from "drizzle-orm";
+import { eq, asc, desc, sql } from "drizzle-orm";
 import { randomUUIDv7 } from "bun";
 
 export class JobStore {
@@ -47,7 +47,7 @@ export class JobStore {
   ): Promise<PageTranslationJob | undefined> {
     const [row] = await db
       .update(pageTranslationJobs)
-      .set({ ...data, updatedAt: new Date().toISOString() })
+      .set({ ...data, updatedAt: sql`datetime('now')` })
       .where(eq(pageTranslationJobs.id, id))
       .returning();
     return row;
@@ -60,7 +60,7 @@ export class JobStore {
   ): Promise<void> {
     await db
       .update(pageTranslationJobs)
-      .set({ status, errorMessage: errorMessage ?? null, updatedAt: new Date().toISOString() })
+      .set({ status, errorMessage: errorMessage ?? null, updatedAt: sql`datetime('now')` })
       .where(eq(pageTranslationJobs.id, id));
   }
 
@@ -71,7 +71,7 @@ export class JobStore {
     if (!job) return;
     await db
       .update(pageTranslationJobs)
-      .set({ processedBubbles: job.processedBubbles + 1, updatedAt: new Date().toISOString() })
+      .set({ processedBubbles: job.processedBubbles + 1, updatedAt: sql`datetime('now')` })
       .where(eq(pageTranslationJobs.id, id));
   }
 
@@ -106,7 +106,7 @@ export class JobStore {
   ): Promise<PageTranslationLog | undefined> {
     const [row] = await db
       .update(pageTranslationLogs)
-      .set({ ...data, updatedAt: new Date().toISOString() })
+      .set({ ...data, updatedAt: sql`datetime('now')` })
       .where(eq(pageTranslationLogs.id, id))
       .returning();
     return row;

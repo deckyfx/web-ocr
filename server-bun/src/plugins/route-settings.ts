@@ -2,6 +2,7 @@ import Elysia, { t } from "elysia";
 import { env } from "@/env";
 import { bootState } from "@/boot-state";
 import { ModelInfoSchema } from "@/lib/schemas";
+import { runtimeSettings } from "@/stores/settings-store";
 
 const SettingsSchema = t.Object({
   ocr: ModelInfoSchema,
@@ -51,8 +52,8 @@ function currentSettings() {
       files: env.TEXT_SEG_MODEL_FILES,
       ready: bootState.textSegReady,
     },
-    preferred_translation_engine: env.PREFERRED_TRANSLATION_ENGINE,
-    inpaint_engine: env.INPAINT_ENGINE,
+    preferred_translation_engine: runtimeSettings.preferredTranslationEngine,
+    inpaint_engine: runtimeSettings.inpaintEngine,
     deepl_configured: !!env.DEEPL_API_KEY,
   };
 }
@@ -61,17 +62,23 @@ export const routeSettings = new Elysia({ prefix: "/api/settings" })
   .get("/", () => currentSettings(), { response: { 200: SettingsSchema } })
   .patch(
     "/engine",
-    async ({ body }) => ({ preferred_translation_engine: body.engine }),
-    {
-      body: t.Object({ engine: t.String() }),
-      response: { 200: t.Object({ preferred_translation_engine: t.String() }) },
+    ({ body, status: error }) => {
+      const allowed = ["auto", "local", "deepl"] as const;
+      if (!allowed.includes(body.engine as typeof allowed[number]))
+        return error(400, { error: `engine must be one of: ${allowed.join(", ")}` });
+      runtimeSettings.preferredTranslationEngine = body.engine as typeof runtimeSettings.preferredTranslationEngine;
+      return { preferred_translation_engine: body.engine };
     },
+    { body: t.Object({ engine: t.String() }) },
   )
   .patch(
     "/inpaint-engine",
-    async ({ body }) => ({ inpaint_engine: body.engine }),
-    {
-      body: t.Object({ engine: t.String() }),
-      response: { 200: t.Object({ inpaint_engine: t.String() }) },
+    ({ body, status: error }) => {
+      const allowed = ["auto", "lama", "flood_fill"] as const;
+      if (!allowed.includes(body.engine as typeof allowed[number]))
+        return error(400, { error: `engine must be one of: ${allowed.join(", ")}` });
+      runtimeSettings.inpaintEngine = body.engine as typeof runtimeSettings.inpaintEngine;
+      return { inpaint_engine: body.engine };
     },
+    { body: t.Object({ engine: t.String() }) },
   );

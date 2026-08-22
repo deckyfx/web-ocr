@@ -39,9 +39,15 @@ export const routeTranslatePage = new Elysia()
       const raw = body.image;
       const commaIdx = raw.indexOf(",");
       const base64 = commaIdx >= 0 ? raw.slice(commaIdx + 1) : raw;
+
+      // Bound the payload before decoding (~15 MB binary ≈ 20 MB base64).
+      if (base64.length > 20 * 1024 * 1024)
+        return error(400, { error: "image payload too large (max ~15 MB)" });
+
       const imageBytes = Buffer.from(base64, "base64");
 
-      const pngBytes = await sharp(imageBytes).png().toBuffer();
+      // Limit input pixels to prevent decompression bombs (100 MP).
+      const pngBytes = await sharp(imageBytes, { limitInputPixels: 100_000_000 }).png().toBuffer();
       const { width = 1, height = 1 } = await sharp(pngBytes).metadata();
 
       const hasher = new Bun.CryptoHasher("sha256");
@@ -99,6 +105,11 @@ export const routeTranslatePage = new Elysia()
     const jobId = params.id;
     return new ReadableStream<Uint8Array>({
       start(controller) {
+        // Close the previous subscriber for this job (only one live stream per job).
+        const prev = sseStreams.get(jobId);
+        if (prev) {
+          try { prev.close(); } catch { /* already closed */ }
+        }
         sseStreams.set(jobId, controller);
         JobStore.findById(jobId).then((job) => {
           if (job) {

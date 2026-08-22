@@ -3,7 +3,6 @@ import { bootState } from "@/boot-state";
 import { inferenceQueue } from "@/queue/inference-queue";
 import { OcrStore } from "@/stores/ocr-store";
 import { JobStore } from "@/stores/job-store";
-import { catchErrorSync } from "@/lib/error-handler";
 import { ErrBody } from "@/lib/schemas";
 import { join } from "path";
 import { env } from "@/env";
@@ -20,11 +19,17 @@ export const routeOcr = new Elysia()
       const comma = imageData.indexOf(",");
       if (comma >= 0) imageData = imageData.slice(comma + 1);
 
-      const [parseErr, imageBytes] = catchErrorSync(() => Buffer.from(imageData, "base64"));
-      if (parseErr) return error(400, { error: "image must be valid base64" });
-
-      if (imageBytes.length > 10 * 1024 * 1024)
+      // Pre-decode size check (~10 MB binary ≈ 13.7 MB base64).
+      if (imageData.length > 14 * 1024 * 1024)
         return error(400, { error: "image payload exceeds 10 MB limit" });
+
+      // Strict Base64 — Buffer.from silently accepts malformed input.
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(imageData))
+        return error(400, { error: "image must be valid base64" });
+
+      const imageBytes = Buffer.from(imageData, "base64");
+      if (imageBytes.length > 10 * 1024 * 1024)
+        return error(400, { error: "decoded image exceeds 10 MB limit" });
 
       const engine = body.translate_engine ?? "none";
 

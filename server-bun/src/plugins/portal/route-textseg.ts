@@ -1,6 +1,5 @@
 import Elysia, { t } from "elysia";
 import { JobStore } from "@/stores/job-store";
-import { catchErrorSync } from "@/lib/error-handler";
 
 interface TextSegBlock {
   id: string;
@@ -12,10 +11,31 @@ interface TextSegBlock {
   translated_text: string | null;
 }
 
-function parseBlocks(raw: string | null): TextSegBlock[] {
+// Per-job async mutex: each new waiter chains onto the previous lock promise.
+const jobLocks = new Map<string, Promise<void>>();
+
+async function withJobLock<T>(jobId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = jobLocks.get(jobId) ?? Promise.resolve();
+  let release!: () => void;
+  jobLocks.set(jobId, new Promise<void>((r) => { release = r; }));
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+/** Returns parsed blocks, or `null` when the stored JSON is malformed. */
+function parseBlocks(raw: string | null): TextSegBlock[] | null {
   if (!raw) return [];
-  const [err, parsed] = catchErrorSync(() => JSON.parse(raw) as unknown);
-  return !err && Array.isArray(parsed) ? (parsed as TextSegBlock[]) : [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed as TextSegBlock[];
+  } catch {
+    return null;
+  }
 }
 
 export const portalTextSeg = new Elysia()
@@ -23,30 +43,36 @@ export const portalTextSeg = new Elysia()
   .get("/jobs/:id/textseg-blocks", async ({ params, status: error }) => {
     const job = await JobStore.findById(params.id);
     if (!job) return error(404, { error: "not found" });
-    return parseBlocks(job.textSegBlocks);
+    const blocks = parseBlocks(job.textSegBlocks);
+    if (blocks === null) return error(500, { error: "textseg data corrupted" });
+    return blocks;
   })
 
   // POST /api/portal/jobs/:id/textseg-blocks
   .post(
     "/jobs/:id/textseg-blocks",
     async ({ params, body, status: error }) => {
-      const job = await JobStore.findById(params.id);
-      if (!job) return error(404, { error: "not found" });
+      return withJobLock(params.id, async () => {
+        const job = await JobStore.findById(params.id);
+        if (!job) return error(404, { error: "not found" });
 
-      const blocks = parseBlocks(job.textSegBlocks);
-      const newBlock: TextSegBlock = {
-        id: crypto.randomUUID(),
-        x: body.x,
-        y: body.y,
-        w: body.w,
-        h: body.h,
-        source_text: null,
-        translated_text: null,
-      };
-      blocks.push(newBlock);
+        const blocks = parseBlocks(job.textSegBlocks);
+        if (blocks === null) return error(500, { error: "textseg data corrupted" });
 
-      await JobStore.update(params.id, { textSegBlocks: JSON.stringify(blocks) });
-      return newBlock;
+        const newBlock: TextSegBlock = {
+          id: crypto.randomUUID(),
+          x: body.x,
+          y: body.y,
+          w: body.w,
+          h: body.h,
+          source_text: null,
+          translated_text: null,
+        };
+        blocks.push(newBlock);
+
+        await JobStore.update(params.id, { textSegBlocks: JSON.stringify(blocks) });
+        return newBlock;
+      });
     },
     {
       body: t.Object({ x: t.Number(), y: t.Number(), w: t.Number(), h: t.Number() }),
@@ -57,16 +83,20 @@ export const portalTextSeg = new Elysia()
   .put(
     "/jobs/:id/textseg-blocks/:blockId",
     async ({ params, body, status: error }) => {
-      const job = await JobStore.findById(params.id);
-      if (!job) return error(404, { error: "not found" });
+      return withJobLock(params.id, async () => {
+        const job = await JobStore.findById(params.id);
+        if (!job) return error(404, { error: "not found" });
 
-      const blocks = parseBlocks(job.textSegBlocks);
-      const idx = blocks.findIndex((b) => b.id === params.blockId);
-      if (idx === -1) return error(404, { error: "block not found" });
+        const blocks = parseBlocks(job.textSegBlocks);
+        if (blocks === null) return error(500, { error: "textseg data corrupted" });
 
-      blocks[idx] = { ...blocks[idx], ...body };
-      await JobStore.update(params.id, { textSegBlocks: JSON.stringify(blocks) });
-      return blocks[idx];
+        const idx = blocks.findIndex((b) => b.id === params.blockId);
+        if (idx === -1) return error(404, { error: "block not found" });
+
+        blocks[idx] = { ...blocks[idx], ...body };
+        await JobStore.update(params.id, { textSegBlocks: JSON.stringify(blocks) });
+        return blocks[idx];
+      });
     },
     {
       body: t.Object({
@@ -82,10 +112,15 @@ export const portalTextSeg = new Elysia()
 
   // DELETE /api/portal/jobs/:id/textseg-blocks/:blockId
   .delete("/jobs/:id/textseg-blocks/:blockId", async ({ params, status: error }) => {
-    const job = await JobStore.findById(params.id);
-    if (!job) return error(404, { error: "not found" });
+    return withJobLock(params.id, async () => {
+      const job = await JobStore.findById(params.id);
+      if (!job) return error(404, { error: "not found" });
 
-    const blocks = parseBlocks(job.textSegBlocks).filter((b) => b.id !== params.blockId);
-    await JobStore.update(params.id, { textSegBlocks: JSON.stringify(blocks) });
-    return { deleted: params.blockId };
+      const blocks = parseBlocks(job.textSegBlocks);
+      if (blocks === null) return error(500, { error: "textseg data corrupted" });
+
+      const filtered = blocks.filter((b) => b.id !== params.blockId);
+      await JobStore.update(params.id, { textSegBlocks: JSON.stringify(filtered) });
+      return { deleted: params.blockId };
+    });
   });

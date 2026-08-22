@@ -1,12 +1,14 @@
 import * as ort from "onnxruntime-node";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { env } from "@/env";
 import { inferenceHandlers } from "@/queue/inference-queue";
 import { bootState } from "@/boot-state";
+import { runtimeSettings } from "@/stores/settings-store";
 
 export interface TranslateInput {
   text: string;
+  engine?: string;
   sourceLang?: string;
   targetLang?: string;
 }
@@ -25,6 +27,8 @@ interface Tokenizer {
 let encoderSession: ort.InferenceSession | null = null;
 let decoderSession: ort.InferenceSession | null = null;
 let tokenizer: Tokenizer | null = null;
+let modelBosToken = 0;
+let modelEosToken = 0;
 
 export async function loadTranslateModel(): Promise<void> {
   const dir = env.TRANSLATE_MODELS_DIR;
@@ -32,7 +36,6 @@ export async function loadTranslateModel(): Promise<void> {
   const decoderPath = join(dir, "onnx/decoder_model.onnx");
   const tokenizerPath = join(dir, "tokenizer.json");
 
-  const { existsSync } = await import("fs");
   if (!existsSync(encoderPath) || !existsSync(decoderPath) || !existsSync(tokenizerPath)) {
     throw new Error(`Translate model files not found in ${dir}.`);
   }
@@ -49,16 +52,31 @@ export async function loadTranslateModel(): Promise<void> {
   // Load tokenizer.json for BPE encode/decode
   tokenizer = buildTokenizer(JSON.parse(readFileSync(tokenizerPath, "utf8")));
 
+  // Read decoder_start_token_id and eos_token_id from config.json when present.
+  const configPath = join(dir, "config.json");
+  if (existsSync(configPath)) {
+    const cfg = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    modelBosToken = typeof cfg["decoder_start_token_id"] === "number" ? cfg["decoder_start_token_id"] : 0;
+    modelEosToken = typeof cfg["eos_token_id"] === "number" ? cfg["eos_token_id"] : 0;
+  }
+
   inferenceHandlers.translate = runTranslate;
   bootState.translateReady = true;
   console.log("Translate model loaded.");
 }
 
 async function runTranslate(input: unknown): Promise<TranslateOutput> {
-  const { text, targetLang = "en" } = input as TranslateInput;
+  const { text, engine, targetLang = "en" } = input as TranslateInput;
 
-  // Prefer DeepL when configured
-  if (env.PREFERRED_TRANSLATION_ENGINE !== "local" && env.DEEPL_API_KEY) {
+  // Resolve which engine to use: explicit request → runtime setting → env default.
+  const resolved = engine === "deepl" || engine === "local"
+    ? engine
+    : runtimeSettings.preferredTranslationEngine !== "local" && env.DEEPL_API_KEY
+      ? "deepl"
+      : "local";
+
+  if (resolved === "deepl") {
+    if (!env.DEEPL_API_KEY) throw new Error("DeepL API key not configured");
     return runDeepL(text, targetLang);
   }
 
@@ -78,9 +96,9 @@ async function runTranslate(input: unknown): Promise<TranslateOutput> {
   });
   const encoderHidden = encOut["last_hidden_state"];
 
-  // Greedy decode
-  const BOS = 0;
-  const EOS = 0; // opus-mt uses 0 for both pad and eos
+  // Greedy decode — use model config tokens (e.g. Xenova/opus-mt-ja-en: BOS=60715, EOS=0).
+  const BOS = modelBosToken;
+  const EOS = modelEosToken;
   const MAX_LEN = 512;
   let genIds = [BOS];
 
