@@ -158,14 +158,14 @@ export function JobsPage() {
               <button
                 onClick={(e) => { e.stopPropagation(); navigate(`/studio/${job.id}`); }}
                 aria-label="Open studio"
-                className="p-1.5 text-gray-600 hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="p-1.5 rounded text-gray-600 hover:text-gray-300 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-gray-400 transition-opacity"
               >
                 <ExternalLink size={14} />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setDeleteTarget(job.id); }}
                 aria-label="Delete job"
-                className="p-1.5 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="p-1.5 rounded text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-red-400 transition-opacity"
               >
                 <Trash2 size={14} />
               </button>
