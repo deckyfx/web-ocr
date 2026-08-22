@@ -71,14 +71,15 @@ export function BubbleCanvas({
   }, [drawState, getRelativePos]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
-    if (!drawState || !onDrawTextSeg) return;
-    const x = Math.min(drawState.startX, drawState.currentX);
-    const y = Math.min(drawState.startY, drawState.currentY);
-    const w = Math.abs(drawState.currentX - drawState.startX);
-    const h = Math.abs(drawState.currentY - drawState.startY);
-    if (w > 4 && h > 4) onDrawTextSeg(x, y, w, h);
+    if (!drawState) return;
+    const pos = getRelativePos(e);
+    const x = Math.min(drawState.startX, pos.x);
+    const y = Math.min(drawState.startY, pos.y);
+    const w = Math.abs(pos.x - drawState.startX);
+    const h = Math.abs(pos.y - drawState.startY);
+    if (onDrawTextSeg && w > 4 && h > 4) onDrawTextSeg(x, y, w, h);
     setDrawState(null);
-  }, [drawState, onDrawTextSeg]);
+  }, [drawState, onDrawTextSeg, getRelativePos]);
 
   const scaleX = (v: number) => `${(v / imageWidth) * 100}%`;
   const scaleY = (v: number) => `${(v / imageHeight) * 100}%`;

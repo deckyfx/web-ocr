@@ -83,7 +83,9 @@ export const pageTranslationLogs = sqliteTable("page_translation_logs", {
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
   /** Serialised style JSON (font size, color, alignment …) */
   styleJson: text("style_json"),
-});
+}, (table) => ({
+  bubbleJobIdx: uniqueIndex("page_translation_logs_job_bubble_idx").on(table.jobId, table.bubbleIndex),
+}));
 
 // ── Type exports ─────────────────────────────────────────────────────────────
 

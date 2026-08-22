@@ -31,11 +31,15 @@ export function SettingsPage() {
 
       {/* Server health */}
       <Section title="Server health">
-        {!health ? (
+        {healthQ.isLoading ? (
           <div className="flex items-center gap-2 text-gray-500 text-sm">
             <Loader2 size={14} className="animate-spin" /> Loading…
           </div>
-        ) : (
+        ) : healthQ.isError ? (
+          <div className="flex items-center gap-2 text-red-400 text-sm">
+            <AlertCircle size={14} /> Failed to load server health
+          </div>
+        ) : health ? (
           <div className="grid grid-cols-2 gap-2 text-sm">
             {([
               ["Status", health.status],
@@ -57,11 +61,17 @@ export function SettingsPage() {
               </div>
             ))}
           </div>
-        )}
+        ) : null}
       </Section>
 
       {/* Model settings */}
-      {settings && (
+      {settingsQ.isError ? (
+        <Section title="Models">
+          <div className="flex items-center gap-2 text-red-400 text-sm">
+            <AlertCircle size={14} /> Failed to load model settings
+          </div>
+        </Section>
+      ) : settings && (
         <Section title="Models">
           <div className="flex flex-col gap-2 text-sm">
             {(["ocr", "translate", "inpaint", "bubble", "text_seg"] as const).map((key) => {

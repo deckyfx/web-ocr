@@ -96,7 +96,16 @@ export const getBubbles = (jobId: string) =>
 
 export const updateBubble = (jobId: string, idx: number, patch: Partial<TranslationBubble>) =>
   unwrap<TranslationBubble>(
-    api.api.portal.jobs({ id: jobId }).bubbles({ bubbleIndex: String(idx) }).put(patch),
+    api.api.portal.jobs({ id: jobId }).bubbles({ bubbleIndex: String(idx) }).put({
+      x: patch.x,
+      y: patch.y,
+      width: patch.width,
+      height: patch.height,
+      rotation: patch.rotation,
+      source_text: patch.sourceText,
+      translated_text: patch.translatedText,
+      style_json: patch.styleJson,
+    }),
   );
 
 export const deleteBubble = (jobId: string, idx: number) =>

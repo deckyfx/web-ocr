@@ -58,7 +58,7 @@ async function runTextSeg(input: unknown): Promise<TextSegOutput> {
 
   // Resize to 1024×1024
   const { data, info } = await sharp(imageBuffer)
-    .resize(MODEL_SIZE, MODEL_SIZE)
+    .resize(MODEL_SIZE, MODEL_SIZE, { fit: "fill" })
     .removeAlpha()
     .toColourspace("srgb")
     .raw()

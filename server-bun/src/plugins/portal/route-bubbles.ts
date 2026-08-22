@@ -6,6 +6,11 @@ import { join } from "path";
 
 const DATA_DIR = "./data/jobs";
 
+function parseBubbleIndex(raw: string): number | null {
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && Number.isSafeInteger(n) ? n : null;
+}
+
 const BubbleBody = t.Object({
   x: t.Optional(t.Number()),
   y: t.Optional(t.Number()),
@@ -32,20 +37,28 @@ export const portalBubbles = new Elysia()
       const job = await JobStore.findById(params.id);
       if (!job) return error(404, { error: "not found" });
 
-      const bubbles = await JobStore.listBubbles(params.id);
-      const maxIdx = bubbles.reduce((m, b) => Math.max(m, b.bubbleIndex), -1);
-      const bubble = await JobStore.insertBubble({
-        jobId: params.id,
-        bubbleIndex: maxIdx + 1,
-        x: body.x ?? 0,
-        y: body.y ?? 0,
-        width: body.width ?? 100,
-        height: body.height ?? 100,
-        rotation: body.rotation ?? 0,
-        sourceText: body.source_text ?? null,
-        translatedText: body.translated_text ?? null,
-      });
-      return bubble;
+      // Retry once on unique-index race (concurrent POST for same job)
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const bubbles = await JobStore.listBubbles(params.id);
+        const nextIdx = bubbles.reduce((m, b) => Math.max(m, b.bubbleIndex), -1) + 1;
+        try {
+          return await JobStore.insertBubble({
+            jobId: params.id,
+            bubbleIndex: nextIdx,
+            x: body.x ?? 0,
+            y: body.y ?? 0,
+            width: body.width ?? 100,
+            height: body.height ?? 100,
+            rotation: body.rotation ?? 0,
+            sourceText: body.source_text ?? null,
+            translatedText: body.translated_text ?? null,
+          });
+        } catch (err) {
+          if (attempt === 0 && err instanceof Error && err.message.includes("UNIQUE constraint")) continue;
+          throw err;
+        }
+      }
+      return error(409, { error: "concurrent bubble index conflict" });
     },
     {
       body: t.Object({
@@ -64,7 +77,8 @@ export const portalBubbles = new Elysia()
   .put(
     "/jobs/:id/bubbles/:bubbleIndex",
     async ({ params, body, status: error }) => {
-      const idx = parseInt(params.bubbleIndex, 10);
+      const idx = parseBubbleIndex(params.bubbleIndex);
+      if (idx === null) return error(400, { error: "invalid bubble index" });
       const bubble = await JobStore.findBubble(params.id, idx);
       if (!bubble) return error(404, { error: "not found" });
 
@@ -88,7 +102,8 @@ export const portalBubbles = new Elysia()
   .delete(
     "/jobs/:id/bubbles/:bubbleIndex",
     async ({ params, status: error }) => {
-      const idx = parseInt(params.bubbleIndex, 10);
+      const idx = parseBubbleIndex(params.bubbleIndex);
+      if (idx === null) return error(400, { error: "invalid bubble index" });
       const bubble = await JobStore.findBubble(params.id, idx);
       if (!bubble) return error(404, { error: "not found" });
       await JobStore.deleteBubble(bubble.id);
@@ -102,7 +117,8 @@ export const portalBubbles = new Elysia()
     async ({ params, status: error }) => {
       if (!bootState.ocrReady) return error(503, { error: "OCR model not ready" });
 
-      const idx = parseInt(params.bubbleIndex, 10);
+      const idx = parseBubbleIndex(params.bubbleIndex);
+      if (idx === null) return error(400, { error: "invalid bubble index" });
       const bubble = await JobStore.findBubble(params.id, idx);
       if (!bubble) return error(404, { error: "not found" });
 
@@ -128,7 +144,8 @@ export const portalBubbles = new Elysia()
       if (!bootState.translateReady)
         return error(503, { error: "Translate model not ready" });
 
-      const idx = parseInt(params.bubbleIndex, 10);
+      const idx = parseBubbleIndex(params.bubbleIndex);
+      if (idx === null) return error(400, { error: "invalid bubble index" });
       const bubble = await JobStore.findBubble(params.id, idx);
       if (!bubble) return error(404, { error: "not found" });
       if (!bubble.sourceText) return error(400, { error: "no source text to translate" });

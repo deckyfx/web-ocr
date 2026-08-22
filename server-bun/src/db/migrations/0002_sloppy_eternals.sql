@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `page_translation_logs_job_bubble_idx` ON `page_translation_logs` (`job_id`,`bubble_index`);

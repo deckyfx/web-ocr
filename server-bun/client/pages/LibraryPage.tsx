@@ -181,7 +181,7 @@ export function LibraryPage() {
       {deleteVolTarget !== null && (
         <ConfirmDialog
           title="Delete volume?"
-          message="All chapters and jobs linked to this volume will be removed."
+          message="All chapters linked to this volume will be permanently removed."
           confirmLabel="Delete"
           danger
           loading={deleteVolMutation.isPending}
