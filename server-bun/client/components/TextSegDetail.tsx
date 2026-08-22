@@ -39,7 +39,7 @@ export function TextSegDetail({ box, index, onDelete }: Props) {
         <div className={`rounded-lg px-3 py-2 text-sm min-h-[3rem] ${
           box.source_text ? "bg-gray-800 text-gray-200" : "bg-gray-900 text-gray-600 italic"
         }`}>
-          {box.source_text ?? "No OCR text"}
+          {box.source_text || "No OCR text"}
         </div>
       </div>
 
@@ -48,7 +48,7 @@ export function TextSegDetail({ box, index, onDelete }: Props) {
         <div className={`rounded-lg px-3 py-2 text-sm min-h-[3rem] ${
           box.translated_text ? "bg-gray-800 text-gray-200" : "bg-gray-900 text-gray-600 italic"
         }`}>
-          {box.translated_text ?? "No translation"}
+          {box.translated_text || "No translation"}
         </div>
       </div>
     </div>

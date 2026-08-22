@@ -14,8 +14,8 @@ interface TextSegBlock {
 
 function parseBlocks(raw: string | null): TextSegBlock[] {
   if (!raw) return [];
-  const [err, parsed] = catchErrorSync(() => JSON.parse(raw) as TextSegBlock[]);
-  return err ? [] : parsed;
+  const [err, parsed] = catchErrorSync(() => JSON.parse(raw) as unknown);
+  return !err && Array.isArray(parsed) ? (parsed as TextSegBlock[]) : [];
 }
 
 export const portalTextSeg = new Elysia()

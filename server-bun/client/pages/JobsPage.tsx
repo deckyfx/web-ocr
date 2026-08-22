@@ -75,7 +75,11 @@ export function JobsPage() {
           type="file"
           accept="image/*"
           className="hidden"
-          onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) handleUpload(file);
+          }}
         />
       </div>
 

@@ -11,6 +11,8 @@ export const routeSpa = new Elysia()
     // Bun's virtual module paths (tailwindcss, /_bun/...)
     if (
       pathname.includes(".") ||
+      pathname.startsWith("/api") ||
+      pathname.startsWith("/health") ||
       pathname === "/tailwindcss" ||
       pathname.startsWith("/_bun")
     ) {

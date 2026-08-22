@@ -59,8 +59,11 @@ async function runOcr(input: unknown): Promise<OcrOutput> {
   const { data, info } = await sharp(imageBuffer)
     .resize(224, 224)
     .removeAlpha()
+    .toColourspace("srgb")
     .raw()
     .toBuffer({ resolveWithObject: true });
+
+  if (info.channels !== 3) throw new Error(`Expected 3 channels, got ${info.channels}`);
 
   const float32 = new Float32Array(3 * 224 * 224);
   for (let i = 0; i < 224 * 224; i++) {

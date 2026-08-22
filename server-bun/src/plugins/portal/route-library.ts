@@ -106,22 +106,15 @@ export const portalLibrary = new Elysia()
     },
   )
 
-  // GET /api/portal/chapters/:id/jobs
+  // GET /api/portal/chapters/:id/jobs — not yet implemented (no chapter-job association in schema)
   .get(
     "/chapters/:id/jobs",
-    async ({ params, status: error }) => {
-      const ch = await VolumeStore.findChapterById(parseInt(params.id, 10));
-      if (!ch) return error(404, { error: "not found" });
-      return JobStore.list(500);
-    },
+    async ({ status: error }) => error(501, { error: "chapter-job filtering not yet implemented" }),
   )
 
-  // PUT /api/portal/chapters/:id/jobs/reorder
+  // PUT /api/portal/chapters/:id/jobs/reorder — not yet implemented
   .put(
     "/chapters/:id/jobs/reorder",
-    async ({ body }) => ({ reordered: body.length }),
-    {
-      body: t.Array(t.String()),
-      response: t.Object({ reordered: t.Integer() }),
-    },
+    async ({ status: error }) => error(501, { error: "job reorder not yet implemented" }),
+    { body: t.Array(t.String()) },
   );

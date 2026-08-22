@@ -57,11 +57,14 @@ async function runTextSeg(input: unknown): Promise<TextSegOutput> {
   const sharp = (await import("sharp")).default;
 
   // Resize to 1024×1024
-  const { data } = await sharp(imageBuffer)
+  const { data, info } = await sharp(imageBuffer)
     .resize(MODEL_SIZE, MODEL_SIZE)
     .removeAlpha()
+    .toColourspace("srgb")
     .raw()
     .toBuffer({ resolveWithObject: true });
+
+  if (info.channels !== 3) throw new Error(`Expected 3 channels, got ${info.channels}`);
 
   const float32 = new Float32Array(3 * MODEL_SIZE * MODEL_SIZE);
   for (let i = 0; i < MODEL_SIZE * MODEL_SIZE; i++) {
@@ -130,13 +133,12 @@ function connectedComponentBoxes(
       const area = (maxX - minX + 1) * (maxY - minY + 1);
       if (area < MIN_AREA) continue;
 
-      // Scale back to original image coordinates
-      boxes.push({
-        x: Math.round(minX * scaleX),
-        y: Math.round(minY * scaleY),
-        w: Math.round((maxX - minX + 1) * scaleX),
-        h: Math.round((maxY - minY + 1) * scaleY),
-      });
+      // Scale back to original image coordinates, clamped to image bounds
+      const bx = Math.max(0, Math.round(minX * scaleX));
+      const by = Math.max(0, Math.round(minY * scaleY));
+      const bw = Math.max(1, Math.min(origW - bx, Math.round((maxX - minX + 1) * scaleX)));
+      const bh = Math.max(1, Math.min(origH - by, Math.round((maxY - minY + 1) * scaleY)));
+      boxes.push({ x: bx, y: by, w: bw, h: bh });
     }
   }
 

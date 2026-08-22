@@ -39,7 +39,7 @@ export const portalActions = new Elysia()
         translated_text: null,
       }));
       await JobStore.update(params.id, { textSegBlocks: JSON.stringify(blocks) });
-      return { blocks, elapsed_ms: result.processingTimeMs };
+      return { blocks, elapsed_ms: Math.round(result.processingTimeMs) };
     },
     {
       response: {

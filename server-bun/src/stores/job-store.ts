@@ -36,7 +36,7 @@ export class JobStore {
   static async insert(data: Omit<NewPageTranslationJob, "id"> & { id?: string }): Promise<PageTranslationJob> {
     const [row] = await db
       .insert(pageTranslationJobs)
-      .values({ id: randomUUIDv7(), ...data })
+      .values({ ...data, id: data.id ?? randomUUIDv7() })
       .returning();
     return row;
   }

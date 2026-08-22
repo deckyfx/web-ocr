@@ -1,4 +1,5 @@
 import Elysia, { t } from "elysia";
+import { rm } from "fs/promises";
 import { JobStore } from "@/stores/job-store";
 import { JobSchema } from "@/lib/schemas";
 import { join } from "path";
@@ -21,15 +22,19 @@ export const portalJobs = new Elysia()
     const job = await JobStore.findById(params.id);
     if (!job) return error(404, { error: "not found" });
     await JobStore.delete(params.id);
-    Bun.spawnSync(["rm", "-rf", join(DATA_DIR, params.id)]);
+    await rm(join(DATA_DIR, params.id), { recursive: true, force: true });
     return { deleted: params.id };
   })
 
-  // PUT /api/portal/jobs/:id
+  // PUT /api/portal/jobs/:id — accepts snake_case body, maps to camelCase store keys
   .put(
     "/jobs/:id",
     async ({ params, body, status: error }) => {
-      const updated = await JobStore.update(params.id, body);
+      const updated = await JobStore.update(params.id, {
+        ...(body.status !== undefined && { status: body.status }),
+        ...(body.error_message !== undefined && { errorMessage: body.error_message }),
+        ...(body.text_seg_blocks !== undefined && { textSegBlocks: body.text_seg_blocks }),
+      });
       if (!updated) return error(404, { error: "not found" });
       return updated;
     },
@@ -48,7 +53,7 @@ export const portalJobs = new Elysia()
     if (!job) return error(404, { error: "not found" });
     const file = Bun.file(join(DATA_DIR, params.id, "original.png"));
     if (!(await file.exists())) return error(404, { error: "original image not found" });
-    set.headers["Cache-Control"] = "public, max-age=86400";
+    set.headers["Cache-Control"] = "private, max-age=86400";
     return file;
   })
 

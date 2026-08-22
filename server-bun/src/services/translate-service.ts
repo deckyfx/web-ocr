@@ -109,21 +109,28 @@ async function runTranslate(input: unknown): Promise<TranslateOutput> {
 
 async function runDeepL(text: string, targetLang: string): Promise<TranslateOutput> {
   const start = Date.now();
-  const res = await fetch("https://api-free.deepl.com/v2/translate", {
+  const key = env.DEEPL_API_KEY ?? "";
+  // Free-tier keys end with :fx; paid keys use api.deepl.com
+  const host = key.endsWith(":fx") ? "api-free.deepl.com" : "api.deepl.com";
+  const res = await fetch(`https://${host}/v2/translate`, {
     method: "POST",
+    signal: AbortSignal.timeout(15_000),
     headers: {
-      "Authorization": `DeepL-Auth-Key ${env.DEEPL_API_KEY}`,
+      "Authorization": `DeepL-Auth-Key ${key}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      text: [text],
-      target_lang: targetLang.toUpperCase(),
-    }),
+    body: JSON.stringify({ text: [text], target_lang: targetLang.toUpperCase() }),
   });
-  if (!res.ok) throw new Error(`DeepL error ${res.status}: ${await res.text()}`);
-  const json = await res.json() as { translations: { text: string }[] };
+  if (!res.ok) {
+    const status = res.status;
+    await res.body?.cancel();
+    throw new Error(`DeepL HTTP ${status}`);
+  }
+  const json = await res.json() as { translations?: { text: string }[] };
+  const first = json.translations?.[0];
+  if (!first?.text) throw new Error("DeepL returned no translations");
   return {
-    translatedText: json.translations[0].text,
+    translatedText: first.text,
     engine: "deepl",
     processingTimeMs: Date.now() - start,
   };

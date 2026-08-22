@@ -198,11 +198,14 @@ export const createChapter = (data: Omit<Chapter, "id" | "createdAt" | "updatedA
     } satisfies ChapterBody),
   );
 
-export const updateChapter = (id: number, data: Partial<Chapter>) =>
+export const updateChapter = (
+  id: number,
+  data: Pick<Chapter, "title" | "pagesDir"> & Partial<Pick<Chapter, "volumeId" | "sortOrder">>,
+) =>
   unwrap<Chapter>(
     api.api.portal.chapters({ id: String(id) }).put({
-      title: data.title ?? "",
-      pages_dir: data.pagesDir ?? "",
+      title: data.title,
+      pages_dir: data.pagesDir,
       volume_id: data.volumeId,
       sort_order: data.sortOrder,
     } satisfies ChapterBody),
@@ -211,7 +214,5 @@ export const updateChapter = (id: number, data: Partial<Chapter>) =>
 export const deleteChapter = (id: number) =>
   unwrap<{ deleted: string }>(api.api.portal.chapters({ id: String(id) }).delete());
 
-export const listChapterJobs = (chapterId: number) =>
-  unwrap<PageTranslationJob[]>(
-    api.api.portal.chapters({ id: String(chapterId) }).jobs.get(),
-  );
+export const listChapterJobs = (_chapterId: number): Promise<PageTranslationJob[]> =>
+  Promise.reject(new Error("chapter-job filtering not yet implemented"));

@@ -22,6 +22,8 @@ export function StudioPage() {
   const qc = useQueryClient();
   const store = useStudioStore();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [imgW, setImgW] = useState(1);
+  const [imgH, setImgH] = useState(1);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -32,10 +34,6 @@ export function StudioPage() {
   const job = jobQ.data ?? null;
   const bubbles = bubblesQ.data ?? [];
   const textSegBlocks = textSegQ.data ?? [];
-
-  // image dimensions from job (fallback to 1×1 until loaded)
-  const imgW = 1920;
-  const imgH = 1080;
 
   // ── Escape key cancels draw mode ───────────────────────────────────────────
 
@@ -218,6 +216,7 @@ export function StudioPage() {
                 imageUrl={imageUrl}
                 imageWidth={imgW}
                 imageHeight={imgH}
+                onImageLoad={(w, h) => { setImgW(w); setImgH(h); }}
                 bubbles={bubbles}
                 selectedBubbleIndex={store.selectedBubbleIndex}
                 overlayBoxes={store.showTextSeg ? textSegBlocks : []}

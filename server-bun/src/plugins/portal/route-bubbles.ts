@@ -33,9 +33,10 @@ export const portalBubbles = new Elysia()
       if (!job) return error(404, { error: "not found" });
 
       const bubbles = await JobStore.listBubbles(params.id);
+      const maxIdx = bubbles.reduce((m, b) => Math.max(m, b.bubbleIndex), -1);
       const bubble = await JobStore.insertBubble({
         jobId: params.id,
-        bubbleIndex: bubbles.length,
+        bubbleIndex: maxIdx + 1,
         x: body.x ?? 0,
         y: body.y ?? 0,
         width: body.width ?? 100,
@@ -124,8 +125,8 @@ export const portalBubbles = new Elysia()
   .post(
     "/jobs/:id/bubbles/:bubbleIndex/retranslate",
     async ({ params, status: error }) => {
-      if (!bootState.translateReady && !bootState.ocrReady)
-        return error(503, { error: "Services not ready" });
+      if (!bootState.translateReady)
+        return error(503, { error: "Translate model not ready" });
 
       const idx = parseInt(params.bubbleIndex, 10);
       const bubble = await JobStore.findBubble(params.id, idx);

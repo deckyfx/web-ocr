@@ -16,6 +16,7 @@ interface Props {
   onSelectBubble?: (index: number | null) => void;
   onSelectTextSeg?: (index: number | null) => void;
   onDrawTextSeg?: (x: number, y: number, w: number, h: number) => void;
+  onImageLoad?: (w: number, h: number) => void;
 }
 
 interface DrawState {
@@ -40,6 +41,7 @@ export function BubbleCanvas({
   onSelectBubble,
   onSelectTextSeg,
   onDrawTextSeg,
+  onImageLoad,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [drawState, setDrawState] = useState<DrawState | null>(null);
@@ -98,6 +100,10 @@ export function BubbleCanvas({
         alt=""
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         draggable={false}
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          onImageLoad?.(img.naturalWidth, img.naturalHeight);
+        }}
       />
 
       {/* Bubble overlays */}

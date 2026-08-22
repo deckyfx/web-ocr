@@ -68,6 +68,8 @@ export const routeTranslatePage = new Elysia()
       runPipeline(job.id, pngBytes, width, height).catch(async (err) => {
         await JobStore.setStatus(job.id, "error", String(err));
         sendSse(job.id, "error", { message: String(err) });
+        sseStreams.get(job.id)?.close();
+        sseStreams.delete(job.id);
       });
 
       return { job_id: job.id, cached: false };
@@ -138,8 +140,13 @@ async function runPipeline(
     const box = boxes[i];
     sendSse(jobId, "progress", { index: i, total: boxes.length });
 
+    // Clamp crop rectangle to image bounds to prevent sharp.extract errors
+    const left = Math.max(0, Math.min(box.x, width - 1));
+    const top = Math.max(0, Math.min(box.y, height - 1));
+    const cropW = Math.max(1, Math.min(box.w, width - left));
+    const cropH = Math.max(1, Math.min(box.h, height - top));
     const cropBuffer = await sharp(pngBytes)
-      .extract({ left: box.x, top: box.y, width: box.w, height: box.h })
+      .extract({ left, top, width: cropW, height: cropH })
       .png()
       .toBuffer();
     await Bun.write(join(jobDir, `crop_${i}.png`), cropBuffer);
