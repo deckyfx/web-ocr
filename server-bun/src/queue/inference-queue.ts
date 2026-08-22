@@ -35,19 +35,31 @@ class InferenceQueue {
   private async drain(): Promise<void> {
     if (this.processing) return;
     this.processing = true;
-    while (this.queue.length > 0) {
-      const job = this.queue.shift()!;
-      try {
-        const timer = new Promise<never>((_, rej) =>
-          setTimeout(() => rej(new Error(`Inference job timed out after ${JOB_TIMEOUT_MS}ms`)), JOB_TIMEOUT_MS),
-        );
-        const result = await Promise.race([this.dispatch(job), timer]);
-        job.resolve(result);
-      } catch (err) {
-        job.reject(err instanceof Error ? err : new Error(String(err)));
+    try {
+      while (this.queue.length > 0) {
+        const job = this.queue.shift()!;
+        const dispatched = this.dispatch(job);
+        let timerId: ReturnType<typeof setTimeout> | undefined;
+        const timer = new Promise<never>((_, rej) => {
+          timerId = setTimeout(
+            () => rej(new Error(`Inference job timed out after ${JOB_TIMEOUT_MS}ms`)),
+            JOB_TIMEOUT_MS,
+          );
+        });
+        try {
+          const result = await Promise.race([dispatched, timer]);
+          job.resolve(result);
+        } catch (err) {
+          job.reject(err instanceof Error ? err : new Error(String(err)));
+          // Wait for dispatch to settle so the queue remains strictly sequential.
+          await dispatched.catch(() => {});
+        } finally {
+          clearTimeout(timerId);
+        }
       }
+    } finally {
+      this.processing = false;
     }
-    this.processing = false;
   }
 
   private async dispatch(job: InferenceJob): Promise<unknown> {

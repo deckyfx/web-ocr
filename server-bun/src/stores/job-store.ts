@@ -60,18 +60,21 @@ export class JobStore {
   ): Promise<void> {
     await db
       .update(pageTranslationJobs)
-      .set({ status, errorMessage: errorMessage ?? null, updatedAt: sql`datetime('now')` })
+      .set({
+        status,
+        updatedAt: sql`datetime('now')`,
+        ...(errorMessage !== undefined ? { errorMessage } : {}),
+      })
       .where(eq(pageTranslationJobs.id, id));
   }
 
   static async incrementProcessed(id: string): Promise<void> {
-    // SQLite has no server-side increment without a subquery; read-modify-write is fine
-    // under the single-writer inference queue
-    const job = await JobStore.findById(id);
-    if (!job) return;
     await db
       .update(pageTranslationJobs)
-      .set({ processedBubbles: job.processedBubbles + 1, updatedAt: sql`datetime('now')` })
+      .set({
+        processedBubbles: sql`${pageTranslationJobs.processedBubbles} + 1`,
+        updatedAt: sql`datetime('now')`,
+      })
       .where(eq(pageTranslationJobs.id, id));
   }
 

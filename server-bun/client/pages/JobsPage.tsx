@@ -7,12 +7,12 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import type { PageTranslationJob } from "../types";
 
 function StatusBadge({ status }: { status: PageTranslationJob["status"] }) {
-  const cls = {
+  const cls = ({
     done: "bg-emerald-900/60 text-emerald-300",
     error: "bg-red-900/60 text-red-300",
     processing: "bg-yellow-900/60 text-yellow-300",
     pending: "bg-gray-800 text-gray-400",
-  }[status];
+  } as Record<string, string>)[status] ?? "bg-gray-800 text-gray-400";
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cls}`}>{status}</span>;
 }
 
@@ -32,6 +32,9 @@ export function JobsPage() {
     onSuccess: () => {
       setDeleteTarget(null);
       qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+    onError: () => {
+      setDeleteTarget(null);
     },
   });
 

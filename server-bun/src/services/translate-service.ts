@@ -52,13 +52,17 @@ export async function loadTranslateModel(): Promise<void> {
   // Load tokenizer.json for BPE encode/decode
   tokenizer = buildTokenizer(JSON.parse(readFileSync(tokenizerPath, "utf8")));
 
-  // Read decoder_start_token_id and eos_token_id from config.json when present.
+  // config.json is required — it carries the BOS/EOS token IDs needed for greedy decode.
   const configPath = join(dir, "config.json");
-  if (existsSync(configPath)) {
-    const cfg = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-    modelBosToken = typeof cfg["decoder_start_token_id"] === "number" ? cfg["decoder_start_token_id"] : 0;
-    modelEosToken = typeof cfg["eos_token_id"] === "number" ? cfg["eos_token_id"] : 0;
+  if (!existsSync(configPath)) {
+    throw new Error(`Translate model config.json not found in ${dir}.`);
   }
+  const cfg = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+  if (typeof cfg["decoder_start_token_id"] !== "number" || typeof cfg["eos_token_id"] !== "number") {
+    throw new Error(`Translate model config.json is missing decoder_start_token_id or eos_token_id.`);
+  }
+  modelBosToken = cfg["decoder_start_token_id"];
+  modelEosToken = cfg["eos_token_id"];
 
   inferenceHandlers.translate = runTranslate;
   bootState.translateReady = true;
@@ -66,6 +70,9 @@ export async function loadTranslateModel(): Promise<void> {
 }
 
 async function runTranslate(input: unknown): Promise<TranslateOutput> {
+  if (!input || typeof input !== "object" || typeof (input as TranslateInput).text !== "string") {
+    throw new Error("Invalid translate input: text must be a string");
+  }
   const { text, engine, targetLang = "en" } = input as TranslateInput;
 
   // Resolve which engine to use: explicit request → runtime setting → env default.
@@ -86,7 +93,8 @@ async function runTranslate(input: unknown): Promise<TranslateOutput> {
 
   const start = Date.now();
 
-  const inputIds = tokenizer.encode(text);
+  const MAX_INPUT_LEN = 512;
+  const inputIds = tokenizer.encode(text).slice(0, MAX_INPUT_LEN);
   const idsTensor = new ort.Tensor("int64", BigInt64Array.from(inputIds.map(BigInt)), [1, inputIds.length]);
   const attentionMask = new ort.Tensor("int64", BigInt64Array.from(inputIds.map(() => 1n)), [1, inputIds.length]);
 
@@ -109,7 +117,8 @@ async function runTranslate(input: unknown): Promise<TranslateOutput> {
       encoder_hidden_states: encoderHidden,
       encoder_attention_mask: attentionMask,
     });
-    const logits = decOut["logits"].data as Float32Array;
+    const logits = decOut["logits"]?.data as Float32Array | undefined;
+    if (!logits) throw new Error("Translate decoder produced no logits");
     const seqLen = genIds.length;
     const vocabSize = logits.length / seqLen;
     const lastLogits = logits.slice((seqLen - 1) * vocabSize, seqLen * vocabSize);
@@ -160,27 +169,29 @@ function buildTokenizer(json: Record<string, unknown>): Tokenizer {
   const model = json["model"] as Record<string, unknown>;
   const vocabMap = model["vocab"] as Record<string, number>;
   const idToToken = Object.fromEntries(Object.entries(vocabMap).map(([t, id]) => [id, t]));
-  const merges: [string, string][] = (model["merges"] as string[]).map((m) => {
-    const [a, b] = m.split(" ");
-    return [a, b];
-  });
+  const mergeRank = new Map<string, number>(
+    (model["merges"] as string[]).map((m, i) => [m, i]),
+  );
 
   function applyBpe(word: string): string[] {
     let parts = word.split("");
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const [a, b] of merges) {
-        const idx = parts.indexOf(a);
-        if (idx !== -1 && parts[idx + 1] === b) {
-          parts = [...parts.slice(0, idx), a + b, ...parts.slice(idx + 2)];
-          changed = true;
-          break;
+    while (parts.length > 1) {
+      let bestRank = Infinity;
+      let bestIdx = -1;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const rank = mergeRank.get(`${parts[i]} ${parts[i + 1]}`);
+        if (rank !== undefined && rank < bestRank) {
+          bestRank = rank;
+          bestIdx = i;
         }
       }
+      if (bestIdx === -1) break;
+      parts = [...parts.slice(0, bestIdx), parts[bestIdx] + parts[bestIdx + 1], ...parts.slice(bestIdx + 2)];
     }
     return parts;
   }
+
+  const unkId = vocabMap["<unk>"] ?? 0;
 
   return {
     encode(text: string): number[] {
@@ -188,8 +199,7 @@ function buildTokenizer(json: Record<string, unknown>): Tokenizer {
       for (const word of text.split(" ")) {
         const bpeTokens = applyBpe("▁" + word);
         for (const t of bpeTokens) {
-          const id = vocabMap[t];
-          if (id !== undefined) tokens.push(id);
+          tokens.push(vocabMap[t] ?? unkId);
         }
       }
       return tokens;

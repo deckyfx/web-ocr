@@ -17,11 +17,13 @@ const jobLocks = new Map<string, Promise<void>>();
 async function withJobLock<T>(jobId: string, fn: () => Promise<T>): Promise<T> {
   const prev = jobLocks.get(jobId) ?? Promise.resolve();
   let release!: () => void;
-  jobLocks.set(jobId, new Promise<void>((r) => { release = r; }));
+  const current = new Promise<void>((r) => { release = r; });
+  jobLocks.set(jobId, current);
   await prev;
   try {
     return await fn();
   } finally {
+    if (jobLocks.get(jobId) === current) jobLocks.delete(jobId);
     release();
   }
 }
@@ -120,6 +122,7 @@ export const portalTextSeg = new Elysia()
       if (blocks === null) return error(500, { error: "textseg data corrupted" });
 
       const filtered = blocks.filter((b) => b.id !== params.blockId);
+      if (filtered.length === blocks.length) return error(404, { error: "block not found" });
       await JobStore.update(params.id, { textSegBlocks: JSON.stringify(filtered) });
       return { deleted: params.blockId };
     });
