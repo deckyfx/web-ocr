@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, blob } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 // ── OCR / Translate logs (mirrors C# OcrLog / TranslateLog) ────────────────
@@ -35,7 +35,7 @@ export const volumes = sqliteTable("volumes", {
 
 export const chapters = sqliteTable("chapters", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  volumeId: integer("volume_id").references(() => volumes.id, { onDelete: "cascade" }),
+  volumeId: integer("volume_id").notNull().references(() => volumes.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
   pagesDir: text("pages_dir").notNull(),
@@ -47,7 +47,7 @@ export const chapters = sqliteTable("chapters", {
 
 export const pageTranslationJobs = sqliteTable("page_translation_jobs", {
   id: text("id").primaryKey(),
-  imageHash: text("image_hash").notNull(),
+  imageHash: text("image_hash").notNull().unique(),
   /** Original image path or URL */
   sourcePath: text("source_path").notNull(),
   status: text("status").notNull().default("pending"),

@@ -28,13 +28,27 @@ async function withJobLock<T>(jobId: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Returns parsed blocks, or `null` when the stored JSON is malformed. */
+function isTextSegBlock(v: unknown): v is TextSegBlock {
+  if (!v || typeof v !== "object") return false;
+  const b = v as Record<string, unknown>;
+  return (
+    typeof b["id"] === "string" &&
+    typeof b["x"] === "number" &&
+    typeof b["y"] === "number" &&
+    typeof b["w"] === "number" &&
+    typeof b["h"] === "number" &&
+    (b["source_text"] === null || typeof b["source_text"] === "string") &&
+    (b["translated_text"] === null || typeof b["translated_text"] === "string")
+  );
+}
+
+/** Returns parsed blocks, or `null` when the stored JSON is malformed or members are invalid. */
 function parseBlocks(raw: string | null): TextSegBlock[] | null {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return null;
-    return parsed as TextSegBlock[];
+    if (!Array.isArray(parsed) || !parsed.every(isTextSegBlock)) return null;
+    return parsed;
   } catch {
     return null;
   }

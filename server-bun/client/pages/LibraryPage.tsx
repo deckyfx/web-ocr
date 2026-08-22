@@ -27,12 +27,17 @@ export function LibraryPage() {
 
   const deleteVolMutation = useMutation({
     mutationFn: (id: number) => deleteVolume(id),
-    onSuccess: () => { setDeleteVolTarget(null); qc.invalidateQueries({ queryKey: ["volumes"] }); },
+    onSuccess: (_, id) => {
+      setDeleteVolTarget(null);
+      if (selectedVolId === id) setSelectedVolId(null);
+      qc.invalidateQueries({ queryKey: ["volumes"] });
+      qc.invalidateQueries({ queryKey: ["chapters", id] });
+    },
   });
 
   const createChapterMutation = useMutation({
     mutationFn: () => createChapter({
-      volumeId: selectedVolId,
+      volumeId: selectedVolId!,
       title: newChapterTitle,
       pagesDir: newChapterDir,
       sortOrder: 0,
@@ -64,10 +69,16 @@ export function LibraryPage() {
             <div className="flex justify-center py-8"><Loader2 size={16} className="animate-spin text-gray-500" /></div>
           )}
           {vols.map((vol) => (
-            <button
+            <div
               key={vol.id}
+              role="button"
+              tabIndex={0}
               onClick={() => setSelectedVolId(vol.id === selectedVolId ? null : vol.id)}
-              className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left border-b border-gray-800/50 transition-colors group ${
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ")
+                  setSelectedVolId(vol.id === selectedVolId ? null : vol.id);
+              }}
+              className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left border-b border-gray-800/50 transition-colors group cursor-pointer ${
                 vol.id === selectedVolId ? "bg-indigo-600/20 text-indigo-300" : "text-gray-300 hover:bg-gray-800"
               }`}
             >
@@ -79,7 +90,7 @@ export function LibraryPage() {
               >
                 <Trash2 size={12} />
               </button>
-            </button>
+            </div>
           ))}
         </div>
 

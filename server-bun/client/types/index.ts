@@ -8,7 +8,7 @@ export interface Volume {
 
 export interface Chapter {
   id: number;
-  volumeId: number | null;
+  volumeId: number;
   title: string;
   sortOrder: number;
   pagesDir: string;

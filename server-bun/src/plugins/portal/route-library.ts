@@ -9,7 +9,7 @@ const VolumeBody = t.Object({
 });
 
 const ChapterBody = t.Object({
-  volume_id: t.Optional(t.Nullable(t.Number())),
+  volume_id: t.Number(),
   title: t.String(),
   sort_order: t.Optional(t.Number()),
   pages_dir: t.String(),
@@ -76,7 +76,7 @@ export const portalLibrary = new Elysia()
         title: body.title,
         pagesDir: body.pages_dir,
         sortOrder: body.sort_order ?? 0,
-        volumeId: body.volume_id ?? null,
+        volumeId: body.volume_id,
       }),
     { body: ChapterBody, response: ChapterSchema },
   )

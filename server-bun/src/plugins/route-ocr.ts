@@ -6,6 +6,7 @@ import { JobStore } from "@/stores/job-store";
 import { ErrBody } from "@/lib/schemas";
 import { join } from "path";
 import { env } from "@/env";
+import { runtimeSettings } from "@/stores/settings-store";
 
 export const routeOcr = new Elysia()
   // ── POST /ocr ─────────────────────────────────────────────────────────────
@@ -23,15 +24,26 @@ export const routeOcr = new Elysia()
       if (imageData.length > 14 * 1024 * 1024)
         return error(400, { error: "image payload exceeds 10 MB limit" });
 
-      // Strict Base64 — Buffer.from silently accepts malformed input.
-      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(imageData))
+      // Strict Base64 — reject structurally invalid input (length%4===1 is impossible in valid base64).
+      if (imageData.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(imageData))
         return error(400, { error: "image must be valid base64" });
 
       const imageBytes = Buffer.from(imageData, "base64");
       if (imageBytes.length > 10 * 1024 * 1024)
         return error(400, { error: "decoded image exceeds 10 MB limit" });
 
-      const engine = body.translate_engine ?? "none";
+      const allowedTranslateEngines = ["none", "auto", "local", "deepl"] as const;
+      const rawEngine = body.translate_engine?.toLowerCase() ?? "none";
+      if (!allowedTranslateEngines.includes(rawEngine as typeof allowedTranslateEngines[number]))
+        return error(400, { error: `translate_engine must be one of: ${allowedTranslateEngines.join(", ")}` });
+
+      // Resolve translate engine (mirrors route-translate.ts logic).
+      const resolvedTranslateEngine = rawEngine === "none" ? "none"
+        : rawEngine === "auto"
+          ? env.DEEPL_API_KEY ? "deepl" : "local"
+          : rawEngine === "local" || rawEngine === "deepl"
+            ? rawEngine
+            : runtimeSettings.preferredTranslationEngine;
 
       const ocrResult = await inferenceQueue.enqueue<
         { imageBuffer: Buffer },
@@ -39,11 +51,11 @@ export const routeOcr = new Elysia()
       >("ocr", { imageBuffer: imageBytes });
 
       let translation: string | null = null;
-      if (engine !== "none" && ocrResult.text) {
+      if (resolvedTranslateEngine !== "none" && ocrResult.text) {
         const tr = await inferenceQueue.enqueue<
-          { text: string },
+          { text: string; engine: string },
           { translatedText: string; processingTimeMs: number }
-        >("translate", { text: ocrResult.text });
+        >("translate", { text: ocrResult.text, engine: resolvedTranslateEngine });
         translation = tr.translatedText;
       }
 

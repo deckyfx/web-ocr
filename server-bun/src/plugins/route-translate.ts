@@ -4,6 +4,7 @@ import { inferenceQueue } from "@/queue/inference-queue";
 import { OcrStore } from "@/stores/ocr-store";
 import { ErrBody } from "@/lib/schemas";
 import { env } from "@/env";
+import { runtimeSettings } from "@/stores/settings-store";
 
 export const routeTranslate = new Elysia().post(
   "/translate",
@@ -11,13 +12,16 @@ export const routeTranslate = new Elysia().post(
     const text = body.text?.trim();
     if (!text) return error(400, { error: "text is required" });
 
-    const requestedEngine = body.translate_engine?.toLowerCase() ?? env.PREFERRED_TRANSLATION_ENGINE;
-    const resolvedEngine =
-      requestedEngine === "auto"
-        ? env.DEEPL_API_KEY
-          ? "deepl"
-          : "local"
-        : requestedEngine;
+    const allowedEngines = ["auto", "local", "deepl"] as const;
+    const requestedEngine = body.translate_engine?.toLowerCase();
+    if (requestedEngine !== undefined && !allowedEngines.includes(requestedEngine as typeof allowedEngines[number]))
+      return error(400, { error: `translate_engine must be one of: ${allowedEngines.join(", ")}` });
+
+    // Fall back to runtime-mutable setting (not env) when engine is omitted.
+    const effective = (requestedEngine ?? runtimeSettings.preferredTranslationEngine) as string;
+    const resolvedEngine = effective === "auto"
+      ? env.DEEPL_API_KEY ? "deepl" : "local"
+      : effective;
 
     if (resolvedEngine !== "deepl" && !bootState.translateReady)
       return error(503, { error: "Translate model not ready" });

@@ -37,12 +37,19 @@ export const routeTranslatePage = new Elysia()
       if (!bootState.isReady) return error(503, { error: "Server not ready" });
 
       const raw = body.image;
+      // Bound raw payload before any parsing to avoid expensive indexOf on huge strings.
+      if (raw.length > 22 * 1024 * 1024)
+        return error(400, { error: "image payload too large (max ~15 MB)" });
       const commaIdx = raw.indexOf(",");
       const base64 = commaIdx >= 0 ? raw.slice(commaIdx + 1) : raw;
 
-      // Bound the payload before decoding (~15 MB binary ≈ 20 MB base64).
+      // Also bound the base64 portion after stripping the data-URI prefix.
       if (base64.length > 20 * 1024 * 1024)
         return error(400, { error: "image payload too large (max ~15 MB)" });
+
+      // Reject structurally invalid base64 (length%4===1 cannot arise from valid encoding).
+      if (base64.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64))
+        return error(400, { error: "image must be valid base64" });
 
       const imageBytes = Buffer.from(base64, "base64");
 
@@ -59,17 +66,30 @@ export const routeTranslatePage = new Elysia()
         return { job_id: existing.id, cached: true };
       }
 
-      const job = await JobStore.insert({
-        imageHash,
-        sourcePath: "upload",
-        status: "processing",
-        inpaintEnabled: bootState.inpaintEnabled,
-        bubbleEnabled: bootState.bubbleEnabled,
-      });
+      let job;
+      try {
+        job = await JobStore.insert({
+          imageHash,
+          sourcePath: "upload",
+          status: "processing",
+          inpaintEnabled: bootState.inpaintEnabled,
+          bubbleEnabled: bootState.bubbleEnabled,
+        });
+      } catch {
+        // Unique constraint: a concurrent request already inserted a job for this image.
+        const race = await JobStore.findByImageHash(imageHash);
+        if (race) return { job_id: race.id, cached: race.status === "done" };
+        return error(500, { error: "failed to create job" });
+      }
 
       const jobDir = join(DATA_DIR, job.id);
-      await mkdir(jobDir, { recursive: true });
-      await Bun.write(join(jobDir, "original.png"), pngBytes);
+      try {
+        await mkdir(jobDir, { recursive: true });
+        await Bun.write(join(jobDir, "original.png"), pngBytes);
+      } catch (err) {
+        await JobStore.setStatus(job.id, "error", String(err));
+        return error(500, { error: "failed to write job files" });
+      }
 
       runPipeline(job.id, pngBytes, width, height).catch(async (err) => {
         await JobStore.setStatus(job.id, "error", String(err));
@@ -103,8 +123,10 @@ export const routeTranslatePage = new Elysia()
     set.headers["Connection"] = "keep-alive";
 
     const jobId = params.id;
+    let myController: ReadableStreamDefaultController<Uint8Array> | undefined;
     return new ReadableStream<Uint8Array>({
       start(controller) {
+        myController = controller;
         // Close the previous subscriber for this job (only one live stream per job).
         const prev = sseStreams.get(jobId);
         if (prev) {
@@ -119,7 +141,7 @@ export const routeTranslatePage = new Elysia()
         });
       },
       cancel() {
-        sseStreams.delete(jobId);
+        if (myController && sseStreams.get(jobId) === myController) sseStreams.delete(jobId);
       },
     });
   });

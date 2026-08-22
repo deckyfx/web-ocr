@@ -184,7 +184,7 @@ export const listChapters = (volumeId?: number) =>
 interface ChapterBody {
   title: string;
   pages_dir: string;
-  volume_id?: number | null;
+  volume_id: number;
   sort_order?: number;
 }
 
@@ -200,7 +200,7 @@ export const createChapter = (data: Omit<Chapter, "id" | "createdAt" | "updatedA
 
 export const updateChapter = (
   id: number,
-  data: Pick<Chapter, "title" | "pagesDir"> & Partial<Pick<Chapter, "volumeId" | "sortOrder">>,
+  data: Pick<Chapter, "title" | "pagesDir" | "volumeId"> & Partial<Pick<Chapter, "sortOrder">>,
 ) =>
   unwrap<Chapter>(
     api.api.portal.chapters({ id: String(id) }).put({

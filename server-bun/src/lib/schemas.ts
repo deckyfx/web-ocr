@@ -58,7 +58,7 @@ export const VolumeSchema = t.Object({
 
 export const ChapterSchema = t.Object({
   id: t.Integer(),
-  volumeId: t.Nullable(t.Integer()),
+  volumeId: t.Integer(),
   title: t.String(),
   sortOrder: t.Integer(),
   pagesDir: t.String(),

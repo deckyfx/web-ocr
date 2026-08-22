@@ -128,12 +128,18 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
     const d = drag();
     // Only commit if draw mode is still active — Escape may have cancelled it mid-drag.
     if (d.kind === "drawing-textseg" && props.textSegDrawMode) {
-      const x = Math.min(d.startImgX, d.curImgX);
-      const y = Math.min(d.startImgY, d.curImgY);
-      const w = Math.abs(d.curImgX - d.startImgX);
-      const h = Math.abs(d.curImgY - d.startImgY);
-      if (w > 5 && h > 5) {
-        props.onDrawTextSeg?.(x, y, w, h);
+      const IW = props.imageWidth;
+      const IH = props.imageHeight;
+      // Reject drags that started outside the image.
+      if (d.startImgX >= 0 && d.startImgX <= IW && d.startImgY >= 0 && d.startImgY <= IH) {
+        const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+        const x = clamp(Math.min(d.startImgX, d.curImgX), 0, IW);
+        const y = clamp(Math.min(d.startImgY, d.curImgY), 0, IH);
+        const w = clamp(Math.max(d.startImgX, d.curImgX), 0, IW) - x;
+        const h = clamp(Math.max(d.startImgY, d.curImgY), 0, IH) - y;
+        if (w > 5 && h > 5) {
+          props.onDrawTextSeg?.(x, y, w, h);
+        }
       }
     }
     setDrag({ kind: "none" });
@@ -156,6 +162,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
   // ---------------------------------------------------------------------------
 
   function handleSvgMouseDown(e: MouseEvent): void {
+    if (e.button !== 0) return;
     e.preventDefault();
     if (props.textSegDrawMode) {
       const pos = getMouseImgPos(e);
