@@ -5,6 +5,12 @@ namespace WebOcrServer;
 
 public static class PortalTextSegRoutes
 {
+    private static readonly System.Text.Json.JsonSerializerOptions SnakeCaseOpts = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
+        PropertyNameCaseInsensitive = true,
+    };
+
     public static void MapPortalTextSegRoutes(this IEndpointRouteBuilder g)
     {
         g.MapGet("/jobs/{id}/textseg-blocks", async (
@@ -70,17 +76,13 @@ public static class PortalTextSegRoutes
             if (!File.Exists(cacheFile)) return Results.NotFound();
 
             var raw = await File.ReadAllTextAsync(cacheFile);
-            var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw);
+            var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw, SnakeCaseOpts);
             if (blocks is null) return Results.NotFound();
 
             var removed = blocks.RemoveAll(b => b.Id == blockId);
             if (removed == 0) return Results.NotFound();
 
-            var opts = new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-            };
-            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, opts);
+            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts);
             await File.WriteAllTextAsync(cacheFile, updated);
             return Results.Ok(blocks);
         });
@@ -97,7 +99,7 @@ public static class PortalTextSegRoutes
             if (File.Exists(cacheFile))
             {
                 var raw = await File.ReadAllTextAsync(cacheFile);
-                blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw) ?? [];
+                blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw, SnakeCaseOpts) ?? [];
             }
             else
             {
@@ -111,11 +113,7 @@ public static class PortalTextSegRoutes
                 W = (int)req.W, H = (int)req.H,
             });
 
-            var opts = new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-            };
-            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, opts);
+            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts);
             await File.WriteAllTextAsync(cacheFile, updated);
             return Results.Ok(blocks);
         });
@@ -128,7 +126,7 @@ public static class PortalTextSegRoutes
             if (!File.Exists(cacheFile)) return Results.NotFound();
 
             var raw = await File.ReadAllTextAsync(cacheFile);
-            var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw);
+            var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw, SnakeCaseOpts);
             if (blocks is null) return Results.NotFound();
 
             var block = blocks.FirstOrDefault(b => b.Id == blockId);
@@ -137,11 +135,7 @@ public static class PortalTextSegRoutes
             if (req.SourceText is not null) block.SourceText = req.SourceText;
             if (req.TranslatedText is not null) block.TranslatedText = req.TranslatedText;
 
-            var opts = new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-            };
-            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, opts);
+            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts);
             await File.WriteAllTextAsync(cacheFile, updated);
             return Results.Ok(block);
         });

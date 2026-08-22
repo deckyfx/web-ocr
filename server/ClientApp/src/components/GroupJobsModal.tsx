@@ -33,8 +33,8 @@ export function GroupJobsModal(props: GroupJobsModalProps) {
   const [error, setError] = createSignal<string | null>(null);
 
   // Resources
-  const [volumes] = createResource(() => (props.open ? listVolumes() : null));
-  const [chapters] = createResource(() => (props.open ? listChapters() : null));
+  const [volumes] = createResource(() => props.open || undefined, () => listVolumes());
+  const [chapters] = createResource(() => props.open || undefined, () => listChapters());
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
