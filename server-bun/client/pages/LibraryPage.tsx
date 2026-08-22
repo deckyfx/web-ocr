@@ -13,6 +13,11 @@ export function LibraryPage() {
   const [newChapterTitle, setNewChapterTitle] = useState("");
   const [newChapterDir, setNewChapterDir] = useState("");
 
+  const [volCreateError, setVolCreateError] = useState<string | null>(null);
+  const [volDeleteError, setVolDeleteError] = useState<string | null>(null);
+  const [chapterCreateError, setChapterCreateError] = useState<string | null>(null);
+  const [chapterDeleteError, setChapterDeleteError] = useState<string | null>(null);
+
   const volsQ = useQuery({ queryKey: ["volumes"], queryFn: listVolumes });
   const chaptersQ = useQuery({
     queryKey: ["chapters", selectedVolId],
@@ -22,17 +27,20 @@ export function LibraryPage() {
 
   const createVolMutation = useMutation({
     mutationFn: () => createVolume({ title: newVolTitle }),
-    onSuccess: () => { setNewVolTitle(""); qc.invalidateQueries({ queryKey: ["volumes"] }); },
+    onSuccess: () => { setVolCreateError(null); setNewVolTitle(""); qc.invalidateQueries({ queryKey: ["volumes"] }); },
+    onError: (err) => setVolCreateError(err instanceof Error ? err.message : "Create failed"),
   });
 
   const deleteVolMutation = useMutation({
     mutationFn: (id: number) => deleteVolume(id),
     onSuccess: (_, id) => {
+      setVolDeleteError(null);
       setDeleteVolTarget(null);
       if (selectedVolId === id) setSelectedVolId(null);
       qc.invalidateQueries({ queryKey: ["volumes"] });
       qc.invalidateQueries({ queryKey: ["chapters", id] });
     },
+    onError: (err) => setVolDeleteError(err instanceof Error ? err.message : "Delete failed"),
   });
 
   const createChapterMutation = useMutation({
@@ -43,15 +51,24 @@ export function LibraryPage() {
       sortOrder: 0,
     }),
     onSuccess: () => {
+      setChapterCreateError(null);
       setNewChapterTitle(""); setNewChapterDir("");
       qc.invalidateQueries({ queryKey: ["chapters", selectedVolId] });
     },
+    onError: (err) => setChapterCreateError(err instanceof Error ? err.message : "Create failed"),
   });
 
   const deleteChapterMutation = useMutation({
     mutationFn: (id: number) => deleteChapter(id),
-    onSuccess: () => { setDeleteChapterTarget(null); qc.invalidateQueries({ queryKey: ["chapters", selectedVolId] }); },
+    onSuccess: () => {
+      setChapterDeleteError(null);
+      setDeleteChapterTarget(null);
+      qc.invalidateQueries({ queryKey: ["chapters", selectedVolId] });
+    },
+    onError: (err) => setChapterDeleteError(err instanceof Error ? err.message : "Delete failed"),
   });
+
+  const canCreateChapter = newChapterTitle.trim() !== "" && newChapterDir.trim() !== "";
 
   const vols = volsQ.data ?? [];
   const chapters = chaptersQ.data ?? [];
@@ -91,7 +108,7 @@ export function LibraryPage() {
                 <span className="flex-1 truncate">{vol.title}</span>
               </div>
               <button
-                onClick={() => setDeleteVolTarget(vol.id)}
+                onClick={() => { setVolDeleteError(null); setDeleteVolTarget(vol.id); }}
                 aria-label={`Delete ${vol.title}`}
                 className="p-1 mr-1 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-opacity"
               >
@@ -102,21 +119,24 @@ export function LibraryPage() {
         </div>
 
         {/* Add volume */}
-        <div className="p-2 border-t border-gray-800 flex gap-1.5">
-          <input
-            className="flex-1 bg-gray-800 rounded-lg px-2 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:ring-1 focus:ring-indigo-500"
-            placeholder="New volume…"
-            value={newVolTitle}
-            onChange={(e) => setNewVolTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && newVolTitle.trim() && createVolMutation.mutate()}
-          />
-          <button
-            onClick={() => newVolTitle.trim() && createVolMutation.mutate()}
-            disabled={createVolMutation.isPending || !newVolTitle.trim()}
-            className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40"
-          >
-            <Plus size={13} />
-          </button>
+        <div className="p-2 border-t border-gray-800 flex flex-col gap-1">
+          {volCreateError && <p className="text-xs text-red-400 px-1">{volCreateError}</p>}
+          <div className="flex gap-1.5">
+            <input
+              className="flex-1 bg-gray-800 rounded-lg px-2 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:ring-1 focus:ring-indigo-500"
+              placeholder="New volume…"
+              value={newVolTitle}
+              onChange={(e) => setNewVolTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && newVolTitle.trim() && createVolMutation.mutate()}
+            />
+            <button
+              onClick={() => newVolTitle.trim() && createVolMutation.mutate()}
+              disabled={createVolMutation.isPending || !newVolTitle.trim()}
+              className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40"
+            >
+              <Plus size={13} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -146,7 +166,8 @@ export function LibraryPage() {
                   <span className="flex-1 text-gray-300">{ch.title}</span>
                   <span className="text-xs text-gray-600 font-mono truncate max-w-[8rem]">{ch.pagesDir}</span>
                   <button
-                    onClick={() => setDeleteChapterTarget(ch.id)}
+                    onClick={() => { setChapterDeleteError(null); setDeleteChapterTarget(ch.id); }}
+                    aria-label={`Delete ${ch.title}`}
                     className="p-1 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-opacity"
                   >
                     <Trash2 size={12} />
@@ -159,27 +180,30 @@ export function LibraryPage() {
             </div>
 
             {/* Add chapter */}
-            <div className="p-2 border-t border-gray-800 flex gap-1.5">
-              <input
-                className="flex-1 bg-gray-800 rounded-lg px-2 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:ring-1 focus:ring-indigo-500"
-                placeholder="Chapter title…"
-                value={newChapterTitle}
-                onChange={(e) => setNewChapterTitle(e.target.value)}
-              />
-              <input
-                className="w-32 bg-gray-800 rounded-lg px-2 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:ring-1 focus:ring-indigo-500"
-                placeholder="Pages dir…"
-                value={newChapterDir}
-                onChange={(e) => setNewChapterDir(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && newChapterTitle.trim() && createChapterMutation.mutate()}
-              />
-              <button
-                onClick={() => newChapterTitle.trim() && createChapterMutation.mutate()}
-                disabled={createChapterMutation.isPending || !newChapterTitle.trim()}
-                className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40"
-              >
-                <Plus size={13} />
-              </button>
+            <div className="p-2 border-t border-gray-800 flex flex-col gap-1">
+              {chapterCreateError && <p className="text-xs text-red-400 px-1">{chapterCreateError}</p>}
+              <div className="flex gap-1.5">
+                <input
+                  className="flex-1 bg-gray-800 rounded-lg px-2 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:ring-1 focus:ring-indigo-500"
+                  placeholder="Chapter title…"
+                  value={newChapterTitle}
+                  onChange={(e) => setNewChapterTitle(e.target.value)}
+                />
+                <input
+                  className="w-32 bg-gray-800 rounded-lg px-2 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:ring-1 focus:ring-indigo-500"
+                  placeholder="Pages dir…"
+                  value={newChapterDir}
+                  onChange={(e) => setNewChapterDir(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && canCreateChapter && createChapterMutation.mutate()}
+                />
+                <button
+                  onClick={() => canCreateChapter && createChapterMutation.mutate()}
+                  disabled={createChapterMutation.isPending || !canCreateChapter}
+                  className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40"
+                >
+                  <Plus size={13} />
+                </button>
+              </div>
             </div>
           </>
         )}
@@ -188,23 +212,23 @@ export function LibraryPage() {
       {deleteVolTarget !== null && (
         <ConfirmDialog
           title="Delete volume?"
-          message="All chapters linked to this volume will be permanently removed."
+          message={volDeleteError ?? "All chapters linked to this volume will be permanently removed."}
           confirmLabel="Delete"
           danger
           loading={deleteVolMutation.isPending}
-          onConfirm={() => deleteVolMutation.mutate(deleteVolTarget)}
-          onCancel={() => setDeleteVolTarget(null)}
+          onConfirm={() => { setVolDeleteError(null); deleteVolMutation.mutate(deleteVolTarget); }}
+          onCancel={() => { setDeleteVolTarget(null); setVolDeleteError(null); }}
         />
       )}
       {deleteChapterTarget !== null && (
         <ConfirmDialog
           title="Delete chapter?"
-          message="The chapter will be deleted."
+          message={chapterDeleteError ?? "The chapter will be deleted."}
           confirmLabel="Delete"
           danger
           loading={deleteChapterMutation.isPending}
-          onConfirm={() => deleteChapterMutation.mutate(deleteChapterTarget)}
-          onCancel={() => setDeleteChapterTarget(null)}
+          onConfirm={() => { setChapterDeleteError(null); deleteChapterMutation.mutate(deleteChapterTarget); }}
+          onCancel={() => { setDeleteChapterTarget(null); setChapterDeleteError(null); }}
         />
       )}
     </div>

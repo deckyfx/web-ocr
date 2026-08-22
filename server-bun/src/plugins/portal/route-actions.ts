@@ -8,7 +8,29 @@ import sharp from "sharp";
 
 const DATA_DIR = "./data/jobs";
 
-const CountSchema = t.Object({ processed: t.Integer(), total: t.Integer() });
+const CountSchema = t.Object({ processed: t.Integer(), failed: t.Integer(), total: t.Integer() });
+
+/** Shared translate-all-bubbles logic used by both /translate and /retranslate. */
+async function translateBubbles(jobId: string): Promise<{ processed: number; failed: number; total: number } | null> {
+  const job = await JobStore.findById(jobId);
+  if (!job) return null;
+  const bubbles = await JobStore.listBubbles(jobId);
+  let processed = 0, failed = 0;
+  for (const bubble of bubbles) {
+    if (!bubble.sourceText) continue;
+    try {
+      const result = await inferenceQueue.enqueue<{ text: string }, { translatedText: string }>(
+        "translate",
+        { text: bubble.sourceText },
+      );
+      await JobStore.updateBubble(bubble.id, { translatedText: result.translatedText });
+      processed++;
+    } catch {
+      failed++;
+    }
+  }
+  return { processed, failed, total: bubbles.length };
+}
 
 export const portalActions = new Elysia()
   // POST /api/portal/jobs/:id/redetect
@@ -25,7 +47,8 @@ export const portalActions = new Elysia()
       if (!(await originalFile.exists())) return error(404, { error: "original image not found" });
 
       const imageBuffer = Buffer.from(await originalFile.arrayBuffer());
-      const { width = 1, height = 1 } = await sharp(imageBuffer).metadata();
+      const { width, height } = await sharp(imageBuffer).metadata();
+      if (!width || !height) return error(422, { error: "original image metadata unreadable" });
 
       const result = await inferenceQueue.enqueue<
         { imageBuffer: Buffer; origWidth: number; origHeight: number },
@@ -45,6 +68,7 @@ export const portalActions = new Elysia()
       response: {
         200: t.Object({ blocks: t.Array(TextSegBlockSchema), elapsed_ms: t.Integer() }),
         404: ErrBody,
+        422: ErrBody,
         503: ErrBody,
       },
     },
@@ -60,23 +84,26 @@ export const portalActions = new Elysia()
       if (!job) return error(404, { error: "not found" });
 
       const bubbles = await JobStore.listBubbles(params.id);
-      let processed = 0;
+      let processed = 0, failed = 0;
 
       for (const bubble of bubbles) {
         const cropFile = Bun.file(join(DATA_DIR, params.id, `crop_${bubble.bubbleIndex}.png`));
         if (!(await cropFile.exists())) continue;
 
         const imageBuffer = Buffer.from(await cropFile.arrayBuffer());
-        const result = await inferenceQueue.enqueue<
-          { imageBuffer: Buffer },
-          { text: string; processingTimeMs: number }
-        >("ocr", { imageBuffer });
-
-        await JobStore.updateBubble(bubble.id, { sourceText: result.text });
-        processed++;
+        try {
+          const result = await inferenceQueue.enqueue<
+            { imageBuffer: Buffer },
+            { text: string; processingTimeMs: number }
+          >("ocr", { imageBuffer });
+          await JobStore.updateBubble(bubble.id, { sourceText: result.text });
+          processed++;
+        } catch {
+          failed++;
+        }
       }
 
-      return { processed, total: bubbles.length };
+      return { processed, failed, total: bubbles.length };
     },
     { response: { 200: CountSchema, 404: ErrBody, 503: ErrBody } },
   )
@@ -86,25 +113,9 @@ export const portalActions = new Elysia()
     "/jobs/:id/retranslate",
     async ({ params, status: error }) => {
       if (!bootState.translateReady) return error(503, { error: "Translate not ready" });
-
-      const job = await JobStore.findById(params.id);
-      if (!job) return error(404, { error: "not found" });
-
-      const bubbles = await JobStore.listBubbles(params.id);
-      let processed = 0;
-
-      for (const bubble of bubbles) {
-        if (!bubble.sourceText) continue;
-        const result = await inferenceQueue.enqueue<
-          { text: string },
-          { translatedText: string }
-        >("translate", { text: bubble.sourceText });
-
-        await JobStore.updateBubble(bubble.id, { translatedText: result.translatedText });
-        processed++;
-      }
-
-      return { processed, total: bubbles.length };
+      const result = await translateBubbles(params.id);
+      if (!result) return error(404, { error: "not found" });
+      return result;
     },
     { response: { 200: CountSchema, 404: ErrBody, 503: ErrBody } },
   )
@@ -114,22 +125,9 @@ export const portalActions = new Elysia()
     "/jobs/:id/translate",
     async ({ params, status: error }) => {
       if (!bootState.translateReady) return error(503, { error: "Translate not ready" });
-
-      const job = await JobStore.findById(params.id);
-      if (!job) return error(404, { error: "not found" });
-
-      const bubbles = await JobStore.listBubbles(params.id);
-      let processed = 0;
-      for (const bubble of bubbles) {
-        if (!bubble.sourceText) continue;
-        const result = await inferenceQueue.enqueue<
-          { text: string },
-          { translatedText: string }
-        >("translate", { text: bubble.sourceText });
-        await JobStore.updateBubble(bubble.id, { translatedText: result.translatedText });
-        processed++;
-      }
-      return { processed, total: bubbles.length };
+      const result = await translateBubbles(params.id);
+      if (!result) return error(404, { error: "not found" });
+      return result;
     },
     { response: { 200: CountSchema, 404: ErrBody, 503: ErrBody } },
   )

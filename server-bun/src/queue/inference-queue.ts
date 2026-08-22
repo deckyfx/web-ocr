@@ -9,6 +9,8 @@ export interface InferenceJob<TInput = unknown, TOutput = unknown> {
   reject: (err: Error) => void;
   /** Aborted when the per-job timeout fires; handlers should poll this in loops. */
   signal: AbortSignal;
+  /** Timestamp (ms) when the job was enqueued — used to detect deadline expiry before dispatch. */
+  enqueuedAt: number;
 }
 
 const MAX_QUEUE_DEPTH = 50;
@@ -36,6 +38,7 @@ class InferenceQueue {
         resolve: resolve as (r: unknown) => void,
         reject,
         signal: controller.signal,
+        enqueuedAt: Date.now(),
       });
       // Store controller so drain can abort on timeout.
       (this.queue[this.queue.length - 1] as InferenceJob & { _controller: AbortController })._controller = controller;
@@ -50,6 +53,12 @@ class InferenceQueue {
       while (this.queue.length > 0) {
         const job = this.queue.shift()! as InferenceJob & { _controller?: AbortController };
         const controller = job._controller;
+        // Reject jobs that spent their entire deadline waiting in the queue
+        if (Date.now() - job.enqueuedAt >= JOB_TIMEOUT_MS) {
+          controller?.abort();
+          job.reject(new Error(`Inference job timed out after ${JOB_TIMEOUT_MS}ms`));
+          continue;
+        }
         const dispatched = this.dispatch(job);
         let timerId: ReturnType<typeof setTimeout> | undefined;
         const timer = new Promise<never>((_, rej) => {

@@ -10,13 +10,14 @@ import { routeTranslatePage } from "@/plugins/route-translate-page";
 import { portalPlugin } from "@/plugins/portal/index";
 import { routeSpa } from "@/plugins/route-spa";
 
-// Boot the DB and run migrations before accepting requests
-async function boot(): Promise<void> {
+async function migrateDb(): Promise<void> {
   const { migrate } = await import("drizzle-orm/bun-sqlite/migrator");
   const { db } = await import("@/db/index");
   await migrate(db, { migrationsFolder: "./src/db/migrations" });
   console.log("DB migrations applied.");
+}
 
+async function loadModels(): Promise<void> {
   bootState.inpaintEnabled = env.INPAINT_MODEL_ENABLED;
   bootState.bubbleEnabled = env.BUBBLE_MODEL_ENABLED;
   bootState.textSegEnabled = env.TEXT_SEG_MODEL_ENABLED;
@@ -38,6 +39,9 @@ async function boot(): Promise<void> {
   console.log("Boot complete — server ready.");
 }
 
+// Run migrations before accepting any requests
+await migrateDb();
+
 const app = new Elysia()
   .use(cors())
   .use(routeHealth)
@@ -56,9 +60,9 @@ app.listen(listen, ({ hostname, port }) => {
   console.log(`web-ocr-bun listening on http://${hostname}:${port}`);
 });
 
-// Boot runs non-blocking — server accepts requests immediately
-boot().catch((err) => {
-  console.error("Boot failed:", err);
+// Load models non-blocking — server accepts requests immediately, /health returns "starting" until ready
+loadModels().catch((err) => {
+  console.error("Model loading failed:", err);
   process.exit(1);
 });
 

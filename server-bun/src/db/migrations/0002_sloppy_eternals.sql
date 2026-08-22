@@ -1,3 +1,4 @@
+-- bubble_index has been NOT NULL since migration 0000; dedup covers all rows
 DELETE FROM `page_translation_logs` WHERE rowid IN (
   SELECT rowid FROM (
     SELECT rowid,

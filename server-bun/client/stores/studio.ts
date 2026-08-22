@@ -95,5 +95,7 @@ export const useStudioStore = create<StudioState>((set) => ({
       activeStage: "original",
       selectedBubbleIndex: null, selectedTextSegIndex: null,
       isTextSegDrawMode: false, actionError: null,
+      isRedetecting: false, isReocring: false, isTranslating: false,
+      isInpainting: false, isBurning: false,
     }),
 }));
