@@ -9,8 +9,13 @@ CREATE TABLE `__new_chapters` (
 	FOREIGN KEY (`volume_id`) REFERENCES `volumes`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
--- volume_id was nullable in migration 0000; rows with NULL cannot satisfy the new NOT NULL FK
-DELETE FROM `chapters` WHERE `volume_id` IS NULL;--> statement-breakpoint
+-- Rescue any chapters orphaned by NULL volume_id: assign them to a new "Unassigned" volume
+INSERT INTO `volumes` (`title`, `created_at`, `updated_at`)
+  SELECT 'Unassigned', datetime('now'), datetime('now')
+  WHERE EXISTS (SELECT 1 FROM `chapters` WHERE `volume_id` IS NULL);--> statement-breakpoint
+UPDATE `chapters` SET `volume_id` = (
+  SELECT `id` FROM `volumes` WHERE `title` = 'Unassigned' ORDER BY `id` DESC LIMIT 1
+) WHERE `volume_id` IS NULL;--> statement-breakpoint
 INSERT INTO `__new_chapters`("id", "volume_id", "title", "sort_order", "pages_dir", "created_at", "updated_at") SELECT "id", "volume_id", "title", "sort_order", "pages_dir", "created_at", "updated_at" FROM `chapters`;--> statement-breakpoint
 DROP TABLE `chapters`;--> statement-breakpoint
 ALTER TABLE `__new_chapters` RENAME TO `chapters`;--> statement-breakpoint

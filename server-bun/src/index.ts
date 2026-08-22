@@ -22,17 +22,25 @@ async function loadModels(): Promise<void> {
   bootState.bubbleEnabled = env.BUBBLE_MODEL_ENABLED;
   bootState.textSegEnabled = env.TEXT_SEG_MODEL_ENABLED;
 
+  const loadErrors: string[] = [];
+
   if (env.OCR_MODEL_ENABLED) {
     const { loadOcrModel } = await import("@/services/ocr-service");
-    await loadOcrModel().catch((err) => console.warn("OCR model skipped:", err.message));
+    await loadOcrModel().catch((err: Error) => { loadErrors.push(`OCR: ${err.message}`); });
   }
   if (env.TRANSLATE_MODEL_ENABLED) {
     const { loadTranslateModel } = await import("@/services/translate-service");
-    await loadTranslateModel().catch((err) => console.warn("Translate model skipped:", err.message));
+    await loadTranslateModel().catch((err: Error) => { loadErrors.push(`Translate: ${err.message}`); });
   }
   if (env.TEXT_SEG_MODEL_ENABLED) {
     const { loadTextSegModel } = await import("@/services/text-seg-service");
-    await loadTextSegModel().catch((err) => console.warn("TextSeg model skipped:", err.message));
+    await loadTextSegModel().catch((err: Error) => { loadErrors.push(`TextSeg: ${err.message}`); });
+  }
+
+  if (loadErrors.length > 0) {
+    for (const e of loadErrors) console.error(`Model load failed — ${e}`);
+    // bootState.isReady stays false; /health will report "starting" until process restarts
+    return;
   }
 
   bootState.isReady = true;

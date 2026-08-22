@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, BookOpen, Loader2 } from "lucide-react";
+import { Plus, Trash2, BookOpen, Loader2, RefreshCw } from "lucide-react";
 import { listVolumes, createVolume, deleteVolume, listChapters, createChapter, deleteChapter } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 
@@ -44,16 +44,16 @@ export function LibraryPage() {
   });
 
   const createChapterMutation = useMutation({
-    mutationFn: () => createChapter({
-      volumeId: selectedVolId!,
+    mutationFn: (volumeId: number) => createChapter({
+      volumeId,
       title: newChapterTitle,
       pagesDir: newChapterDir,
       sortOrder: 0,
     }),
-    onSuccess: () => {
+    onSuccess: (_, volumeId) => {
       setChapterCreateError(null);
       setNewChapterTitle(""); setNewChapterDir("");
-      qc.invalidateQueries({ queryKey: ["chapters", selectedVolId] });
+      qc.invalidateQueries({ queryKey: ["chapters", volumeId] });
     },
     onError: (err) => setChapterCreateError(err instanceof Error ? err.message : "Create failed"),
   });
@@ -85,6 +85,17 @@ export function LibraryPage() {
           {volsQ.isLoading && (
             <div className="flex justify-center py-8"><Loader2 size={16} className="animate-spin text-gray-500" /></div>
           )}
+          {volsQ.isError && (
+            <div className="flex flex-col items-center gap-2 py-8 text-xs text-red-400 px-3 text-center">
+              <span>Failed to load volumes</span>
+              <button
+                onClick={() => qc.invalidateQueries({ queryKey: ["volumes"] })}
+                className="flex items-center gap-1 text-gray-400 hover:text-gray-200"
+              >
+                <RefreshCw size={11} /> Retry
+              </button>
+            </div>
+          )}
           {vols.map((vol) => (
             <div
               key={vol.id}
@@ -112,7 +123,7 @@ export function LibraryPage() {
               <button
                 onClick={() => { setVolDeleteError(null); setDeleteVolTarget(vol.id); }}
                 aria-label={`Delete ${vol.title}`}
-                className="p-1 mr-1 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-opacity"
+                className="p-1 mr-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-red-400 rounded text-gray-600 hover:text-red-400 transition-opacity"
               >
                 <Trash2 size={12} />
               </button>
@@ -161,6 +172,17 @@ export function LibraryPage() {
               {chaptersQ.isLoading && (
                 <div className="flex justify-center py-8"><Loader2 size={16} className="animate-spin text-gray-500" /></div>
               )}
+              {chaptersQ.isError && (
+                <div className="flex flex-col items-center gap-2 py-8 text-xs text-red-400 text-center">
+                  <span>Failed to load chapters</span>
+                  <button
+                    onClick={() => qc.invalidateQueries({ queryKey: ["chapters", selectedVolId] })}
+                    className="flex items-center gap-1 text-gray-400 hover:text-gray-200"
+                  >
+                    <RefreshCw size={11} /> Retry
+                  </button>
+                </div>
+              )}
               {chapters.map((ch) => (
                 <div
                   key={ch.id}
@@ -171,13 +193,13 @@ export function LibraryPage() {
                   <button
                     onClick={() => { setChapterDeleteError(null); setDeleteChapterTarget(ch.id); }}
                     aria-label={`Delete ${ch.title}`}
-                    className="p-1 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-opacity"
+                    className="p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-red-400 rounded text-gray-600 hover:text-red-400 transition-opacity"
                   >
                     <Trash2 size={12} />
                   </button>
                 </div>
               ))}
-              {!chaptersQ.isLoading && chapters.length === 0 && (
+              {!chaptersQ.isLoading && !chaptersQ.isError && chapters.length === 0 && (
                 <div className="text-gray-600 text-sm text-center py-8">No chapters yet</div>
               )}
             </div>
@@ -197,10 +219,10 @@ export function LibraryPage() {
                   placeholder="Pages dir…"
                   value={newChapterDir}
                   onChange={(e) => setNewChapterDir(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && canCreateChapter && createChapterMutation.mutate()}
+                  onKeyDown={(e) => e.key === "Enter" && canCreateChapter && selectedVolId !== null && createChapterMutation.mutate(selectedVolId)}
                 />
                 <button
-                  onClick={() => canCreateChapter && createChapterMutation.mutate()}
+                  onClick={() => canCreateChapter && selectedVolId !== null && createChapterMutation.mutate(selectedVolId)}
                   disabled={createChapterMutation.isPending || !canCreateChapter}
                   aria-label="Create chapter"
                   className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40"
