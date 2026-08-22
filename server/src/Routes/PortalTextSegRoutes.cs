@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using WebOcrServer.Data;
 
@@ -10,6 +11,20 @@ public static class PortalTextSegRoutes
         PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
         PropertyNameCaseInsensitive = true,
     };
+
+    // Per-job semaphores prevent concurrent read-modify-write races on textseg_blocks.json.
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> JobLocks = new();
+
+    private static SemaphoreSlim GetJobLock(string jobId) =>
+        JobLocks.GetOrAdd(jobId, _ => new SemaphoreSlim(1, 1));
+
+    /// <summary>Atomically write <paramref name="json"/> to <paramref name="path"/> via a temp file.</summary>
+    private static async Task AtomicWriteAsync(string path, string json)
+    {
+        var tmp = path + ".tmp";
+        await File.WriteAllTextAsync(tmp, json);
+        File.Move(tmp, path, overwrite: true);
+    }
 
     public static void MapPortalTextSegRoutes(this IEndpointRouteBuilder g)
     {
@@ -27,6 +42,7 @@ public static class PortalTextSegRoutes
             var jobDir    = pipeline.GetJobDir(id);
             var cacheFile = Path.Combine(jobDir, "textseg_blocks.json");
 
+            // Fast path: cache hit (no lock needed for read-only).
             if (File.Exists(cacheFile))
             {
                 var cached = await File.ReadAllTextAsync(cacheFile);
@@ -47,7 +63,6 @@ public static class PortalTextSegRoutes
             await queue.Writer.WriteAsync(new TextSegJob(imagePng, tcs));
             var seg = (TextSegResult)await tcs.Task;
 
-            // Generate blocks with stable IDs
             var blocks = seg.TextBlocks.Select(b => new TextSegBlock
             {
                 Id = Guid.NewGuid().ToString("N")[..8],
@@ -55,12 +70,18 @@ public static class PortalTextSegRoutes
                 W = (int)b.Width, H = (int)b.Height,
             }).ToList();
 
-            var opts = new System.Text.Json.JsonSerializerOptions
+            var json = System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts);
+
+            // Acquire lock before writing to avoid racing with concurrent mutation.
+            var sem = GetJobLock(id);
+            await sem.WaitAsync();
+            try
             {
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-            };
-            var json = System.Text.Json.JsonSerializer.Serialize(blocks, opts);
-            await File.WriteAllTextAsync(cacheFile, json);
+                Directory.CreateDirectory(jobDir);
+                await AtomicWriteAsync(cacheFile, json);
+            }
+            finally { sem.Release(); }
+
             return Results.Content(json, "application/json");
         });
 
@@ -73,49 +94,54 @@ public static class PortalTextSegRoutes
             if (job is null) return Results.NotFound();
 
             var cacheFile = Path.Combine(pipeline.GetJobDir(id), "textseg_blocks.json");
-            if (!File.Exists(cacheFile)) return Results.NotFound();
 
-            var raw = await File.ReadAllTextAsync(cacheFile);
-            var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw, SnakeCaseOpts);
-            if (blocks is null) return Results.NotFound();
+            var sem = GetJobLock(id);
+            await sem.WaitAsync();
+            try
+            {
+                if (!File.Exists(cacheFile)) return Results.NotFound();
 
-            var removed = blocks.RemoveAll(b => b.Id == blockId);
-            if (removed == 0) return Results.NotFound();
+                var raw    = await File.ReadAllTextAsync(cacheFile);
+                var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw, SnakeCaseOpts);
+                if (blocks is null) return Results.NotFound();
 
-            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts);
-            await File.WriteAllTextAsync(cacheFile, updated);
-            return Results.Ok(blocks);
+                var removed = blocks.RemoveAll(b => b.Id == blockId);
+                if (removed == 0) return Results.NotFound();
+
+                await AtomicWriteAsync(cacheFile, System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts));
+                return Results.Ok(blocks);
+            }
+            finally { sem.Release(); }
         });
 
         g.MapPost("/jobs/{id}/textseg-blocks", async (
             string id, AddTextSegRequest req,
             PageTranslationService pipeline) =>
         {
-            var jobDir = pipeline.GetJobDir(id);
-            Directory.CreateDirectory(jobDir);
+            var jobDir    = pipeline.GetJobDir(id);
             var cacheFile = Path.Combine(jobDir, "textseg_blocks.json");
 
-            List<TextSegBlock> blocks;
-            if (File.Exists(cacheFile))
+            var sem = GetJobLock(id);
+            await sem.WaitAsync();
+            try
             {
-                var raw = await File.ReadAllTextAsync(cacheFile);
-                blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw, SnakeCaseOpts) ?? [];
-            }
-            else
-            {
-                blocks = [];
-            }
+                List<TextSegBlock> blocks = File.Exists(cacheFile)
+                    ? System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(
+                          await File.ReadAllTextAsync(cacheFile), SnakeCaseOpts) ?? []
+                    : [];
 
-            blocks.Add(new TextSegBlock
-            {
-                Id = Guid.NewGuid().ToString("N")[..8],
-                X = (int)req.X, Y = (int)req.Y,
-                W = (int)req.W, H = (int)req.H,
-            });
+                blocks.Add(new TextSegBlock
+                {
+                    Id = Guid.NewGuid().ToString("N")[..8],
+                    X = (int)req.X, Y = (int)req.Y,
+                    W = (int)req.W, H = (int)req.H,
+                });
 
-            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts);
-            await File.WriteAllTextAsync(cacheFile, updated);
-            return Results.Ok(blocks);
+                Directory.CreateDirectory(jobDir);
+                await AtomicWriteAsync(cacheFile, System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts));
+                return Results.Ok(blocks);
+            }
+            finally { sem.Release(); }
         });
 
         g.MapPut("/jobs/{id}/textseg-blocks/{blockId}", async (
@@ -123,21 +149,27 @@ public static class PortalTextSegRoutes
             PageTranslationService pipeline) =>
         {
             var cacheFile = Path.Combine(pipeline.GetJobDir(id), "textseg_blocks.json");
-            if (!File.Exists(cacheFile)) return Results.NotFound();
 
-            var raw = await File.ReadAllTextAsync(cacheFile);
-            var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw, SnakeCaseOpts);
-            if (blocks is null) return Results.NotFound();
+            var sem = GetJobLock(id);
+            await sem.WaitAsync();
+            try
+            {
+                if (!File.Exists(cacheFile)) return Results.NotFound();
 
-            var block = blocks.FirstOrDefault(b => b.Id == blockId);
-            if (block is null) return Results.NotFound();
+                var raw    = await File.ReadAllTextAsync(cacheFile);
+                var blocks = System.Text.Json.JsonSerializer.Deserialize<List<TextSegBlock>>(raw, SnakeCaseOpts);
+                if (blocks is null) return Results.NotFound();
 
-            if (req.SourceText is not null) block.SourceText = req.SourceText;
-            if (req.TranslatedText is not null) block.TranslatedText = req.TranslatedText;
+                var block = blocks.FirstOrDefault(b => b.Id == blockId);
+                if (block is null) return Results.NotFound();
 
-            var updated = System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts);
-            await File.WriteAllTextAsync(cacheFile, updated);
-            return Results.Ok(block);
+                if (req.SourceText     is not null) block.SourceText     = req.SourceText;
+                if (req.TranslatedText is not null) block.TranslatedText = req.TranslatedText;
+
+                await AtomicWriteAsync(cacheFile, System.Text.Json.JsonSerializer.Serialize(blocks, SnakeCaseOpts));
+                return Results.Ok(block);
+            }
+            finally { sem.Release(); }
         });
     }
 
