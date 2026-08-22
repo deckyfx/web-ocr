@@ -243,8 +243,7 @@ public sealed class ModelSettingsStore
             TextSeg = new ModelEntry
             {
                 // zyddnys/manga-image-translator — MIT, 94.6 MB; pixel-level text segmentation.
-                // Uses a direct GitHub release URL rather than HuggingFace (no Repo needed).
-                Repo    = Ev("TEXT_SEG_MODEL_REPO")  ?? "",
+                Repo    = Ev("TEXT_SEG_MODEL_REPO")  ?? "zyddnys/manga-image-translator",
                 Dir     = config.TextSegModelsDir,
                 Enabled = EvBool("TEXT_SEG_MODEL_ENABLED", false),
                 Files   = Ev("TEXT_SEG_MODEL_FILES") ?? "comictextdetector.pt.onnx",

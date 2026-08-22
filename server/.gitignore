@@ -4,3 +4,9 @@ wwwroot/js/react-app.js
 wwwroot/js/react-app.css
 data/
 .env
+bin/
+obj/
+*.user
+*.suo
+.vs/
+

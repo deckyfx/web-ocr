@@ -1,0 +1,39 @@
+# ── C# / .NET Build Artifacts ──────────────────────────────────────────────────
+**/bin/
+**/obj/
+**/publish/
+*.dll
+*.exe
+*.pdb
+*.cache
+*.nupkg
+*.user
+project.assets.json
+
+# ── Node / Bun Dependencies & Build Outputs ──────────────────────────────────
+**/node_modules/
+**/dist/
+**/wwwroot/js/
+**/wwwroot/css/
+**/wwwroot/lib/
+bun.lock
+bun.lockb
+package-lock.json
+
+# ── ML Models, Databases & Binary Data ───────────────────────────────────────
+server/data/
+**/data/models/
+**/data/jobs/
+server/samples/
+*.db
+*.db-wal
+*.db-shm
+*.zip
+*.tar.gz
+
+# ── Misc / Logs / Env ─────────────────────────────────────────────────────────
+.env
+.env.*
+*.log
+mighty-wiggling-cascade.md
+server/result.txt

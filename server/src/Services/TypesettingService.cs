@@ -391,17 +391,17 @@ public sealed class TypesettingService
         // Use override size when set and > 0, otherwise binary-search the best fit
         float fontSize = fontSizeOverride is > 0
             ? (float)fontSizeOverride
-            : BestFitFontSize(text, targetW, targetH, minSize: 8f, maxSize: 36f, typeface);
+            : FontMetrics.BestFitFontSize(text, targetW, targetH, minSize: 8f, maxSize: 36f, typeface);
 
         using var font  = new SKFont(typeface, fontSize);
-        var lines = WordWrap(text, font, targetW);
+        var lines = FontMetrics.WordWrap(text, font, targetW);
 
         float lineH  = fontSize * 1.25f;
         float totalH = lines.Count * lineH;
         float startY = centerY - totalH / 2f + fontSize; // baseline of first line
 
         // Parse fill color (default #1a1a1a)
-        var fillColor = ParseHexColor(fontColor) ?? new SKColor(26, 26, 26);
+        var fillColor = FontMetrics.ParseHexColor(fontColor) ?? new SKColor(26, 26, 26);
 
         // Clip to the bubble bounds and optionally rotate around the bubble center.
         // When rotation is applied, skip the axis-aligned clip — the rotated text
@@ -416,7 +416,7 @@ public sealed class TypesettingService
         var sw = strokeWidth ?? 0;
         if (sw > 0 && !string.IsNullOrEmpty(strokeColor))
         {
-            var sc = ParseHexColor(strokeColor);
+            var sc = FontMetrics.ParseHexColor(strokeColor);
             if (sc.HasValue)
             {
                 using var strokePaint = new SKPaint
@@ -429,7 +429,7 @@ public sealed class TypesettingService
                 };
                 for (int i = 0; i < lines.Count; i++)
                 {
-                    float x = LineX(lines[i], font, centerX, targetW, textAlign);
+                    float x = FontMetrics.LineX(lines[i], font, centerX, targetW, textAlign);
                     float y = startY + i * lineH;
                     canvas.DrawText(lines[i], x, y, font, strokePaint);
                 }
@@ -440,7 +440,7 @@ public sealed class TypesettingService
         using var textPaint = new SKPaint { Color = fillColor, IsAntialias = true };
         for (int i = 0; i < lines.Count; i++)
         {
-            float x = LineX(lines[i], font, centerX, targetW, textAlign);
+            float x = FontMetrics.LineX(lines[i], font, centerX, targetW, textAlign);
             float y = startY + i * lineH;
             canvas.DrawText(lines[i], x, y, font, textPaint);
         }
@@ -448,80 +448,5 @@ public sealed class TypesettingService
         canvas.Restore();
     }
 
-    /// <summary>Computes the X baseline for a line given alignment.</summary>
-    private static float LineX(string line, SKFont font, float centerX, float targetW, string? textAlign)
-    {
-        float textW = font.MeasureText(line);
-        return (textAlign ?? "center") switch
-        {
-            "left"  => centerX - targetW / 2f,
-            "right" => centerX + targetW / 2f - textW,
-            _       => centerX - textW / 2f,   // center (default)
-        };
-    }
-
-    /// <summary>Parses a CSS hex color string (#rgb, #rrggbb) into an SKColor. Returns null on failure.</summary>
-    private static SKColor? ParseHexColor(string? hex)
-    {
-        if (string.IsNullOrWhiteSpace(hex)) return null;
-        hex = hex.TrimStart('#');
-        if (hex.Length == 3)
-            hex = string.Concat(hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]);
-        if (hex.Length != 6) return null;
-        if (!uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var rgb)) return null;
-        return new SKColor((byte)(rgb >> 16), (byte)(rgb >> 8 & 0xFF), (byte)(rgb & 0xFF));
-    }
-
-    // ── Font-size search ──────────────────────────────────────────────────────
-
-    private static float BestFitFontSize(
-        string text, float maxW, float maxH, float minSize, float maxSize,
-        SKTypeface? typeface = null)
-    {
-        float lo = minSize, hi = maxSize, best = minSize;
-        for (int iter = 0; iter < 14; iter++)
-        {
-            float mid = (lo + hi) / 2f;
-            if (TextFits(text, mid, maxW, maxH, typeface)) { best = mid; lo = mid; }
-            else hi = mid;
-            if (hi - lo < 0.5f) break;
-        }
-        return best;
-    }
-
-    private static bool TextFits(string text, float fontSize, float maxW, float maxH, SKTypeface? typeface = null)
-    {
-        using var font   = new SKFont(typeface ?? SKTypeface.Default, fontSize);
-        var       lines  = WordWrap(text, font, maxW);
-        float     totalH = lines.Count * fontSize * 1.25f;
-        return totalH <= maxH;
-    }
-
-    // ── Word-wrap ─────────────────────────────────────────────────────────────
-
-    private static List<string> WordWrap(string text, SKFont font, float maxWidth)
-    {
-        var lines   = new List<string>();
-        var words   = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var current = new System.Text.StringBuilder();
-
-        foreach (var word in words)
-        {
-            var candidate = current.Length == 0 ? word : current + " " + word;
-            if (font.MeasureText(candidate) <= maxWidth)
-            {
-                current.Clear();
-                current.Append(candidate);
-            }
-            else
-            {
-                if (current.Length > 0) lines.Add(current.ToString());
-                current.Clear();
-                current.Append(word);
-            }
-        }
-
-        if (current.Length > 0) lines.Add(current.ToString());
-        return lines.Count == 0 ? [text] : lines;
-    }
+    // ── Delegates to FontMetrics ──────────────────────────────────────────────
 }

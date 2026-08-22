@@ -5,6 +5,10 @@
       "name": "web-ocr"
     },
     {
+      "path": "../manga-reader",
+      "name": "manga-reader"
+    },
+    {
       "path": "manga-reader",
       "name": "manga-reader (reference)"
     }

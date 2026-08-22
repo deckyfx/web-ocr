@@ -340,7 +340,15 @@ export function jobResultUrl(id: string): string {
   return `/api/portal/jobs/${id}/result`;
 }
 
-export type TextSegBox = { x: number; y: number; w: number; h: number };
+export type TextSegBox = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  source_text?: string | null;
+  translated_text?: string | null;
+};
 
 export async function getJobTextSegBlocks(id: string): Promise<TextSegBox[]> {
   const r = await fetch(`/api/portal/jobs/${id}/textseg-blocks`);
@@ -350,6 +358,16 @@ export async function getJobTextSegBlocks(id: string): Promise<TextSegBox[]> {
 
 export async function deleteTextSegBlock(id: string, index: number): Promise<TextSegBox[]> {
   const r = await fetch(`/api/portal/jobs/${id}/textseg-blocks/${index}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<TextSegBox[]>;
+}
+
+export async function addTextSegBlock(id: string, box: Pick<TextSegBox, "x" | "y" | "w" | "h">): Promise<TextSegBox[]> {
+  const r = await fetch(`/api/portal/jobs/${id}/textseg-blocks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ x: box.x, y: box.y, w: box.w, h: box.h }),
+  });
   if (!r.ok) throw new Error(await r.text());
   return r.json() as Promise<TextSegBox[]>;
 }

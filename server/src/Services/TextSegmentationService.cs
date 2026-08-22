@@ -58,9 +58,13 @@ public sealed class TextSegmentationService(ILogger<TextSegmentationService> log
     }
 
     // Connected-component analysis tuning constants
-    private const int MinComponentArea = 100; // pixels — filter noise/dust
-    private const int MergeDistance    = 50;  // pixels — merge text within same bubble
-    private const int BoxPadding       = 15;  // pixels — context margin added to each text block
+    private const int MinComponentArea = 100;  // pixels — filter noise/dust
+    private const int MergeDistance    = 50;   // pixels — merge text within same bubble
+    private const int BoxPadding       = 15;   // pixels — context margin added to each text block
+    // If merging two components would produce a box exceeding BOTH thresholds simultaneously,
+    // skip the merge — prevents chain-merging entire page sections into one blob.
+    private const int MaxMergedWidth   = 300;  // px
+    private const int MaxMergedHeight  = 350;  // px
 
     /// <summary>
     /// Segment text pixels on a manga page.
@@ -330,7 +334,12 @@ public sealed class TextSegmentationService(ILogger<TextSegmentationService> log
                         int newY = Math.Min(ay, by);
                         int newR = Math.Max(ax + aw, bx + bw);
                         int newB = Math.Max(ay + ah, by + bh);
-                        rects[i] = (newX, newY, newR - newX, newB - newY);
+                        int newW = newR - newX;
+                        int newH = newB - newY;
+                        // Skip if the merged box would be enormous in both dimensions —
+                        // this stops chain-merging from collapsing whole page sections into one blob.
+                        if (newW > MaxMergedWidth && newH > MaxMergedHeight) continue;
+                        rects[i] = (newX, newY, newW, newH);
                         rects.RemoveAt(j);
                         j--;
                         anyMerged = true;

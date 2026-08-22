@@ -47,7 +47,7 @@ export function BubbleList(props: BubbleListProps): JSX.Element {
       </div>
 
       {/* List */}
-      <div ref={listRef} class="flex-1 overflow-y-auto">
+      <div ref={listRef} class="flex-1 overflow-y-auto scrollbar-thin">
         <Show
           when={props.bubbles.length > 0}
           fallback={
