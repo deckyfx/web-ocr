@@ -24,8 +24,8 @@ export const routeOcr = new Elysia()
       if (imageData.length > 14 * 1024 * 1024)
         return error(400, { error: "image payload exceeds 10 MB limit" });
 
-      // Strict Base64 — reject structurally invalid input.
-      // length%4===1 is impossible in valid base64; padding chars require length divisible by 4.
+      // Strict Base64: length%4===1 is structurally impossible; padded input ("=") must be a
+      // multiple of 4; characters must be standard alphabet with at most 2 trailing pad chars.
       if (
         imageData.length % 4 === 1 ||
         (imageData.includes("=") && imageData.length % 4 !== 0) ||
