@@ -45,6 +45,9 @@ export const routeOcr = new Elysia()
             ? rawEngine
             : runtimeSettings.preferredTranslationEngine;
 
+      if (resolvedTranslateEngine === "deepl" && !env.DEEPL_API_KEY)
+        return error(503, { error: "DeepL API key not configured" });
+
       const ocrResult = await inferenceQueue.enqueue<
         { imageBuffer: Buffer },
         { text: string; processingTimeMs: number }

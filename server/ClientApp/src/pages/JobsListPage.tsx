@@ -166,7 +166,7 @@ export function JobsListPage() {
 
   // Selection mode states
   const [isSelectionMode, setIsSelectionMode] = createSignal(false);
-  const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set<string>());
 
   // Group modal state
   const [isGroupModalOpen, setIsGroupModalOpen] = createSignal(false);
@@ -204,7 +204,7 @@ export function JobsListPage() {
   function toggleSelectAll() {
     const all = filtered();
     if (selectedIds().size === all.length) {
-      setSelectedIds(new Set());
+      setSelectedIds(new Set<string>());
     } else {
       setSelectedIds(new Set(all.map((j) => j.id)));
     }
@@ -212,7 +212,7 @@ export function JobsListPage() {
 
   function exitSelectionMode() {
     setIsSelectionMode(false);
-    setSelectedIds(new Set());
+    setSelectedIds(new Set<string>());
   }
 
   function requestSingleDelete(id: string, e: MouseEvent): void {
@@ -237,7 +237,7 @@ export function JobsListPage() {
       if (isBatchDelete()) {
         const ids = Array.from(selectedIds());
         await Promise.all(ids.map((id) => deleteJob(id)));
-        setSelectedIds(new Set());
+        setSelectedIds(new Set<string>());
         setIsSelectionMode(false);
       } else {
         const id = pendingDeleteId();

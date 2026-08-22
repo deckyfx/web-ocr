@@ -86,6 +86,7 @@ export function LibraryPage() {
               <span className="flex-1 truncate">{vol.title}</span>
               <button
                 onClick={(e) => { e.stopPropagation(); setDeleteVolTarget(vol.id); }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}
                 className="p-1 opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-opacity"
               >
                 <Trash2 size={12} />

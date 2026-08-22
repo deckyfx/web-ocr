@@ -23,6 +23,7 @@ export function JobsPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const jobsQ = useQuery({ queryKey: ["jobs"], queryFn: listJobs, refetchInterval: 3000 });
   const jobs = jobsQ.data ?? [];
@@ -31,10 +32,11 @@ export function JobsPage() {
     mutationFn: (id: string) => deleteJob(id),
     onSuccess: () => {
       setDeleteTarget(null);
+      setDeleteError(null);
       qc.invalidateQueries({ queryKey: ["jobs"] });
     },
-    onError: () => {
-      setDeleteTarget(null);
+    onError: (err) => {
+      setDeleteError(err instanceof Error ? err.message : "Delete failed");
     },
   });
 
@@ -171,12 +173,12 @@ export function JobsPage() {
       {deleteTarget && (
         <ConfirmDialog
           title="Delete job?"
-          message="All job data will be permanently removed."
+          message={deleteError ?? "All job data will be permanently removed."}
           confirmLabel="Delete"
           danger
           loading={deleteMutation.isPending}
-          onConfirm={() => deleteMutation.mutate(deleteTarget)}
-          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => { setDeleteError(null); deleteMutation.mutate(deleteTarget); }}
+          onCancel={() => { setDeleteTarget(null); setDeleteError(null); }}
         />
       )}
     </div>

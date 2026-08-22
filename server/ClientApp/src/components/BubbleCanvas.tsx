@@ -244,6 +244,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                   stroke-dasharray="5,3"
                   style={{ cursor: isInteractive() ? "pointer" : "none", "pointer-events": isInteractive() ? "auto" : "none" }}
                   onMouseDown={(e) => {
+                    if (e.button !== 0) return;
                     if (!isInteractive()) return;
                     e.preventDefault();
                     e.stopPropagation();
@@ -285,6 +286,7 @@ export function BubbleCanvas(props: BubbleCanvasProps): JSX.Element {
                     stroke-width={isSelected() ? 3 : 2}
                     style={{ cursor: "pointer" }}
                     onMouseDown={(e) => {
+                      if (e.button !== 0) return;
                       e.preventDefault();
                       e.stopPropagation();
                       props.onSelect?.(isSelected() ? null : bubble.bubbleIndex);

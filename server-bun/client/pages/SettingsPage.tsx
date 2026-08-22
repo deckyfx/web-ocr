@@ -65,7 +65,13 @@ export function SettingsPage() {
       </Section>
 
       {/* Model settings */}
-      {settingsQ.isError ? (
+      {settingsQ.isLoading ? (
+        <Section title="Models">
+          <div className="flex items-center gap-2 text-gray-500 text-sm">
+            <Loader2 size={14} className="animate-spin" /> Loading…
+          </div>
+        </Section>
+      ) : settingsQ.isError ? (
         <Section title="Models">
           <div className="flex items-center gap-2 text-red-400 text-sm">
             <AlertCircle size={14} /> Failed to load model settings
@@ -91,7 +97,13 @@ export function SettingsPage() {
       )}
 
       {/* Translation engine */}
-      {settings && (
+      {settingsQ.isLoading ? (
+        <Section title="Translation">
+          <div className="flex items-center gap-2 text-gray-500 text-sm">
+            <Loader2 size={14} className="animate-spin" /> Loading…
+          </div>
+        </Section>
+      ) : settings && (
         <Section title="Translation">
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2">

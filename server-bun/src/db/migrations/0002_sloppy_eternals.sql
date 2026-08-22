@@ -1,1 +1,2 @@
+DELETE FROM `page_translation_logs` WHERE rowid NOT IN (SELECT MIN(rowid) FROM `page_translation_logs` GROUP BY `job_id`, `bubble_index`);--> statement-breakpoint
 CREATE UNIQUE INDEX `page_translation_logs_job_bubble_idx` ON `page_translation_logs` (`job_id`,`bubble_index`);

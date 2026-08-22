@@ -23,6 +23,8 @@ export const routeTranslate = new Elysia().post(
       ? env.DEEPL_API_KEY ? "deepl" : "local"
       : effective;
 
+    if (resolvedEngine === "deepl" && !env.DEEPL_API_KEY)
+      return error(503, { error: "DeepL API key not configured" });
     if (resolvedEngine !== "deepl" && !bootState.translateReady)
       return error(503, { error: "Translate model not ready" });
 

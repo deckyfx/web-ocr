@@ -94,6 +94,9 @@ async function runTranslate(input: unknown): Promise<TranslateOutput> {
   const start = Date.now();
 
   const MAX_INPUT_LEN = 512;
+  // Pre-check raw text length before BPE: ≈ MAX_INPUT_LEN × 4 chars is a safe upper bound.
+  if (text.length > MAX_INPUT_LEN * 4)
+    throw new Error(`Input too long: ${text.length} chars exceeds the ~${MAX_INPUT_LEN}-token limit`);
   const inputIds = tokenizer.encode(text).slice(0, MAX_INPUT_LEN);
   const idsTensor = new ort.Tensor("int64", BigInt64Array.from(inputIds.map(BigInt)), [1, inputIds.length]);
   const attentionMask = new ort.Tensor("int64", BigInt64Array.from(inputIds.map(() => 1n)), [1, inputIds.length]);
